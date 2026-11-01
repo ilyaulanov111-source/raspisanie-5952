@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <title>Пульт 5952</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div id="view" class="view" aria-live="polite"></div>
+
+  <nav class="tabbar" id="tabbar" aria-label="Разделы" hidden>
+    <button class="tab" data-action="tab" data-tab="pulse">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.500-6.500 4.500 13 2.500-6.500H21"/></svg>
+      <span>Пульт</span>
+    </button>
+    <button class="tab" data-action="tab" data-tab="people">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.500"/><path d="M2.800 20c.6-3.800 3-6 6.200-6s5.600 2.200 6.200 6M15.500 4.800a3.500 3.500 0 0 1 0 6.400M18 14.500c1.800.8 3 2.700 3.300 5.500"/></svg>
+      <span>Люди</span>
+      <b class="badge" id="badge-people" hidden></b>
+    </button>
+    <button class="tab" data-action="tab" data-tab="homework">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.500h9.500L19 7v13.500H6a1.500 1.500 0 0 1-1.500-1.500V5A1.500 1.500 0 0 1 6 3.500Z"/><path d="M8.500 11.500h7M8.500 15.500h5"/></svg>
+      <span>ДЗ</span>
+    </button>
+    <button class="tab" data-action="tab" data-tab="air">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4l11 5V5L4 10ZM15 9c2.500 0 4 1.300 4 3s-1.500 3-4 3M7.500 15.500 9 20.500h3l-1.200-3.800"/></svg>
+      <span>Эфир</span>
+    </button>
+  </nav>
+
+  <div id="sheet-root"></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="common.js" defer></script>
+  <script src="admin.js" defer></script>
+  <script src="https://telegram.org/js/telegram-web-app.js" async onload="window.onTelegramReady && window.onTelegramReady()"></script>
+</body>
+</html>
