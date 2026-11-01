@@ -1,18 +1,15 @@
 'use strict';
 
-// Весь текст расписания приходит с портала, поэтому в разметку он попадает только через esc()
-
 const DATA_CACHE_KEY = 'tt_data_v1';
 const HW_MIRROR_KEY = 'tt_homework_v1';
 const HW_PREFIX = 'hw_';
+const SHARED_DONE_KEY = 'tt_shared_done_v1';
+const SHARED_DONE_PREFIX = 'hwd_';
 const HW_MAX_TEXT = 3000;
 const STALE_MINUTES = 180;
 const WIDE_GAP_MINUTES = 40;
 const SWIPE_DISTANCE = 60;
 
-const WEEKDAYS = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-const WEEKDAYS_SHORT = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 const WEEK_NAMES = { upper: 'верхняя неделя', lower: 'нижняя неделя' };
 const STATUS = {
   cancelled: { label: 'не будет', tone: 'danger' },
@@ -21,7 +18,6 @@ const STATUS = {
   added: { label: 'новая пара', tone: 'warn' },
   room: { label: 'другая аудитория', tone: 'warn' },
 };
-const SUBJECT_COLORS = ['#2f7fe0', '#2ea66f', '#d98a00', '#e5484d', '#8e5cf6', '#12a5a5', '#d6409f', '#6b7fd7'];
 
 const subgroup = Number(new URLSearchParams(location.search).get('sg')) || null;
 
@@ -30,96 +26,10 @@ const state = {
   tab: 'schedule',
   selected: null,
   homework: [],
+  sharedDone: new Set(),
   draft: null,
   loadFailed: false,
 };
-
-let tg = null;
-
-function esc(text) {
-  return String(text ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-}
-
-function readStorage(key) {
-  try {
-    return JSON.parse(localStorage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-
-function writeStorage(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Без кеша приложение просто будет грузиться дольше
-  }
-}
-
-// В России нет перехода на летнее время, поэтому хватает постоянного сдвига
-function mskNow() {
-  const shifted = new Date(Date.now() + 3 * 3600 * 1000);
-  return {
-    date: shifted.toISOString().slice(0, 10),
-    minutes: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
-  };
-}
-
-function toMinutes(time) {
-  const [hours, minutes] = time.split(':').map(Number);
-  return hours * 60 + minutes;
-}
-
-function dateParts(iso) {
-  const date = new Date(`${iso}T12:00:00Z`);
-  return { day: date.getUTCDate(), month: date.getUTCMonth(), weekday: date.getUTCDay() };
-}
-
-function addDays(iso, count) {
-  return new Date(Date.parse(`${iso}T12:00:00Z`) + count * 86400000).toISOString().slice(0, 10);
-}
-
-function fullDate(iso) {
-  const { day, month, weekday } = dateParts(iso);
-  return `${WEEKDAYS[weekday]}, ${day} ${MONTHS[month]}`;
-}
-
-function shortDate(iso) {
-  const { day, month, weekday } = dateParts(iso);
-  return `${WEEKDAYS_SHORT[weekday]}, ${day} ${MONTHS[month]}`;
-}
-
-function relativeDay(iso) {
-  const today = mskNow().date;
-  if (iso === today) return 'Сегодня';
-  if (iso === addDays(today, 1)) return 'Завтра';
-  return null;
-}
-
-function plural(count, one, few, many) {
-  const tens = count % 100;
-  const units = count % 10;
-  if (tens >= 11 && tens <= 14) return many;
-  if (units === 1) return one;
-  return units >= 2 && units <= 4 ? few : many;
-}
-
-function duration(minutes) {
-  if (minutes < 60) return `${minutes} ${plural(minutes, 'минута', 'минуты', 'минут')}`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
-}
-
-function roomLabel(room) {
-  return /^\d/.test(room) ? `ауд. ${room}` : room;
-}
-
-function subjectColor(subject) {
-  let hash = 0;
-  for (const ch of subject.toLowerCase()) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
-  return SUBJECT_COLORS[hash % SUBJECT_COLORS.length];
-}
 
 function visible(day) {
   return day.entries.filter((entry) => !subgroup || !entry.subgroup || entry.subgroup === subgroup);
@@ -172,6 +82,7 @@ function heroState() {
       left: `До конца ${duration(end - now.minutes)}`,
       until: current.end,
       progress: Math.round(((now.minutes - start) / (end - start)) * 100),
+      danger: current.danger,
     };
   }
 
@@ -184,6 +95,7 @@ function heroState() {
       meta: place(upcoming),
       left: `Через ${duration(toMinutes(upcoming.start) - now.minutes)}`,
       until: upcoming.start,
+      danger: upcoming.danger,
     };
   }
 
@@ -196,17 +108,20 @@ function heroState() {
     eyebrow: entries.length ? 'На сегодня всё' : 'Сегодня пар нет',
     title: `${when} ${arrive}, в ${first.start}`,
     meta: first.subject,
+    danger: first.danger,
   };
 }
 
 function renderHero() {
   const hero = heroState();
+  document.getElementById('hero')?.classList.toggle('is-danger', Boolean(hero.danger));
+  const warning = hero.danger ? '<span class="hero-hazard">⚠ ОПАСНОСТЬ</span>' : '';
   const timing = hero.left
     ? `<div class="hero-left"><span>${esc(hero.left)}</span><span>${esc(hero.until)}</span></div>`
     : '';
   const bar = hero.progress === undefined ? '' : `<div class="hero-bar"><i style="width:${hero.progress}%"></i></div>`;
   return `
-    <p class="hero-eyebrow">${esc(hero.eyebrow)}</p>
+    <p class="hero-eyebrow">${esc(hero.eyebrow)}${warning}</p>
     <h2 class="hero-title">${esc(hero.title)}</h2>
     ${hero.meta ? `<p class="hero-meta">${esc(hero.meta)}</p>` : ''}
     ${timing}${bar}`;
@@ -248,16 +163,38 @@ function renderStrip() {
     if (index && weekday === 1) parts.push('<i class="strip-week"></i>');
     const classes = ['strip-day', day.date === state.selected ? 'is-active' : '', day.date === today ? 'is-today' : ''].join(' ');
     const changed = visible(day).some((entry) => entry.status !== 'normal');
+    const hazard = attending(day).some((entry) => entry.danger) ? '<i class="hazard">!</i>' : '';
     parts.push(`
       <button class="${classes}" data-action="day" data-date="${day.date}" aria-pressed="${day.date === state.selected}">
-        <small>${WEEKDAYS_SHORT[weekday]}</small><b>${number}</b>${changed ? '<i class="dot"></i>' : ''}
+        <small>${WEEKDAYS_SHORT[weekday]}</small><b>${number}</b>${changed ? '<i class="dot"></i>' : ''}${hazard}
       </button>`);
   });
   return `<div class="strip" id="strip">${parts.join('')}</div>`;
 }
 
+function allHomework() {
+  const shared = (state.data?.homework ?? []).map((item) => ({
+    ...item,
+    id: `s${item.id}`,
+    shared: true,
+    done: state.sharedDone.has(String(item.id)),
+  }));
+  return [...state.homework, ...shared];
+}
+
 function homeworkFor(date, subject) {
-  return state.homework.filter((item) => item.due === date && item.subject === subject && !item.done);
+  return allHomework().filter((item) => item.due === date && item.subject === subject && !item.done);
+}
+
+function dangerTag(entry) {
+  if (!entry.danger) return '';
+  return entry.status === 'cancelled'
+    ? '<span class="tag tag-safe">опасность миновала</span>'
+    : '<span class="tag tag-hazard">⚠ опасность</span>';
+}
+
+function manualTag(entry) {
+  return entry.manual ? '<span class="tag tag-info">от создателя</span>' : '';
 }
 
 function renderLesson(day, entry, isNow) {
@@ -269,17 +206,20 @@ function renderLesson(day, entry, isNow) {
   const note = entry.note ? `<p>${esc(entry.note)}</p>` : '';
   const was = entry.was ? `<p>Вместо: ${esc(entry.was)}</p>` : '';
   const tasks = homeworkFor(day.date, entry.subject)
-    .map((item) => `<button class="hw-pill" data-action="edit-hw" data-id="${esc(item.id)}">ДЗ: ${esc(item.text)}</button>`)
+    .map((item) => {
+      const open = item.shared ? 'data-action="tab" data-tab="homework"' : `data-action="edit-hw" data-id="${esc(item.id)}"`;
+      return `<button class="hw-pill" ${open}>ДЗ: ${esc(item.text)}</button>`;
+    })
     .join('');
   const addButton = entry.status === 'cancelled'
     ? ''
     : `<button class="hw-add" data-action="add-hw" data-subject="${esc(entry.subject)}" data-after="${day.date}">+ ДЗ</button>`;
-  const classes = ['lesson', entry.status === 'cancelled' ? 'is-cancelled' : '', isNow ? 'is-now' : ''].join(' ');
+  const classes = ['lesson', entry.status === 'cancelled' ? 'is-cancelled' : '', isNow ? 'is-now' : '', entry.danger ? 'is-danger' : ''].join(' ');
   return `
     <article class="${classes}">
       <div class="lesson-time"><b>${esc(entry.start)}</b><span>${esc(entry.end)}</span></div>
       <div class="lesson-body" style="--subject:${subjectColor(entry.subject)}">
-        <div class="lesson-top"><span>${pairLabel}${sub}</span>${tag}</div>
+        <div class="lesson-top"><span>${pairLabel}${sub}</span>${tag}${manualTag(entry)}${dangerTag(entry)}</div>
         <h3>${esc(entry.subject)}</h3>
         ${details ? `<p>${esc(details)}</p>` : ''}${note}${was}
         <div class="lesson-foot">${tasks}${addButton}</div>
@@ -318,7 +258,8 @@ function renderDayList() {
 }
 
 function renderSchedule() {
-  return `${renderHead()}<section class="hero" id="hero">${renderHero()}</section>${renderStrip()}<div id="day-list">${renderDayList()}</div>`;
+  const danger = heroState().danger ? ' is-danger' : '';
+  return `${renderHead()}<section class="hero${danger}" id="hero">${renderHero()}</section>${renderStrip()}<div id="day-list">${renderDayList()}</div>`;
 }
 
 function upcomingChanges() {
@@ -342,7 +283,7 @@ function renderChanges() {
       const details = [entry.teacher, roomLabel(entry.room)].filter(Boolean).join(' · ');
       return `
         <div class="change-row">
-          <div class="lesson-top"><span>${esc(when)}</span><span class="tag tag-${status.tone}">${status.label}</span></div>
+          <div class="lesson-top"><span>${esc(when)}</span><span class="tag tag-${status.tone}">${status.label}</span>${manualTag(entry)}</div>
           <strong>${esc(entry.subject)}</strong>
           ${details ? `<p>${esc(details)}</p>` : ''}
           ${entry.was ? `<p>Вместо: ${esc(entry.was)}</p>` : ''}
@@ -355,7 +296,22 @@ function renderChanges() {
   return heading + cards;
 }
 
+function renderSharedHomeworkItem(item) {
+  return `
+    <article class="hw-item is-shared ${item.done ? 'is-done' : ''}">
+      <button class="hw-check" data-action="toggle-hw" data-id="${esc(item.id)}" aria-pressed="${item.done}" aria-label="Отметить выполненным">
+        <svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7.5"/></svg>
+      </button>
+      <div class="hw-main">
+        <strong>${esc(item.subject)} · ${esc(relativeDay(item.due) ?? shortDate(item.due))}</strong>
+        <span>${esc(item.text)}</span>
+      </div>
+      <i class="hw-shared-mark">общее</i>
+    </article>`;
+}
+
 function renderHomeworkItem(item) {
+  if (item.shared) return renderSharedHomeworkItem(item);
   return `
     <article class="hw-item ${item.done ? 'is-done' : ''}">
       <button class="hw-check" data-action="toggle-hw" data-id="${esc(item.id)}" aria-pressed="${item.done}" aria-label="Отметить выполненным">
@@ -372,16 +328,17 @@ function renderHomeworkItem(item) {
 function renderHomework() {
   const today = mskNow().date;
   const byDue = (a, b) => a.due.localeCompare(b.due);
-  const open = state.homework.filter((item) => !item.done).sort(byDue);
+  const homework = allHomework();
+  const open = homework.filter((item) => !item.done).sort(byDue);
   const late = open.filter((item) => item.due < today);
   const coming = open.filter((item) => item.due >= today);
-  const done = state.homework.filter((item) => item.done).sort(byDue).reverse();
+  const done = homework.filter((item) => item.done).sort(byDue).reverse();
 
   const group = (title, items, extra = '') => items.length
     ? `<h2 class="hw-group ${extra}">${title}</h2>${items.map(renderHomeworkItem).join('')}`
     : '';
   const heading = '<h1 class="section-title" style="margin-top:2px;font-size:25px">Домашка</h1>';
-  const empty = state.homework.length ? '' : '<div class="empty"><strong>Пока пусто</strong>Нажми плюс или «+ ДЗ» у пары: срок подставится сам, по следующей паре предмета.</div>';
+  const empty = homework.length ? '' : '<div class="empty"><strong>Пока пусто</strong>Нажми плюс или «+ ДЗ» у пары: срок подставится сам, по следующей паре предмета.</div>';
   return `${heading}${empty}${group('Просрочено', late, 'is-late')}${group('Предстоит', coming)}${group('Сделано', done)}
     <button class="fab" data-action="add-hw" aria-label="Добавить задание">+</button>`;
 }
@@ -390,7 +347,7 @@ function renderBadges() {
   const today = mskNow().date;
   const counters = {
     'badge-changes': upcomingChanges().reduce((sum, item) => sum + item.entries.length, 0),
-    'badge-homework': state.homework.filter((item) => !item.done && item.due <= addDays(today, 1)).length,
+    'badge-homework': allHomework().filter((item) => !item.done && item.due <= addDays(today, 1)).length,
   };
   for (const [id, count] of Object.entries(counters)) {
     const badge = document.getElementById(id);
@@ -420,22 +377,6 @@ function revealSelectedDay(behavior = 'auto') {
   document.querySelector('.strip-day.is-active')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior });
 }
 
-function haptic() {
-  try {
-    tg?.HapticFeedback?.selectionChanged();
-  } catch {
-    // Вне Telegram и в старых версиях отклика нет
-  }
-}
-
-function toast(text) {
-  const element = document.getElementById('toast');
-  element.textContent = text;
-  element.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { element.hidden = true; }, 2600);
-}
-
 // ДЗ хранится в Telegram CloudStorage, а копия в браузере нужна на случай работы без Telegram
 function cloud() {
   return tg?.CloudStorage && tg.isVersionAtLeast?.('6.9') ? tg.CloudStorage : null;
@@ -447,14 +388,23 @@ function cloudCall(method, ...args) {
   });
 }
 
-async function loadHomework() {
+function loadLocalHomework() {
   state.homework = readStorage(HW_MIRROR_KEY) ?? [];
+  state.sharedDone = new Set(readStorage(SHARED_DONE_KEY) ?? []);
+}
+
+async function loadHomework() {
+  loadLocalHomework();
   if (!cloud()) return;
   try {
-    const keys = (await cloudCall('getKeys')).filter((key) => key.startsWith(HW_PREFIX));
+    const allKeys = await cloudCall('getKeys');
+    const keys = allKeys.filter((key) => key.startsWith(HW_PREFIX));
     const values = keys.length ? await cloudCall('getItems', keys) : {};
     state.homework = Object.values(values).filter(Boolean).map((value) => JSON.parse(value));
     writeStorage(HW_MIRROR_KEY, state.homework);
+    const doneKeys = allKeys.filter((key) => key.startsWith(SHARED_DONE_PREFIX));
+    state.sharedDone = new Set(doneKeys.map((key) => key.slice(SHARED_DONE_PREFIX.length)));
+    writeStorage(SHARED_DONE_KEY, [...state.sharedDone]);
   } catch {
     toast('Не удалось загрузить ДЗ из Telegram');
   }
@@ -481,6 +431,20 @@ async function removeHomework(id) {
     await cloudCall('removeItem', HW_PREFIX + id);
   } catch {
     toast('Не удалось удалить ДЗ в Telegram');
+  }
+}
+
+async function toggleSharedHomework(id) {
+  const key = id.slice(1);
+  const done = !state.sharedDone.has(key);
+  if (done) state.sharedDone.add(key);
+  else state.sharedDone.delete(key);
+  writeStorage(SHARED_DONE_KEY, [...state.sharedDone]);
+  if (!cloud()) return;
+  try {
+    await (done ? cloudCall('setItem', SHARED_DONE_PREFIX + key, '1') : cloudCall('removeItem', SHARED_DONE_PREFIX + key));
+  } catch {
+    toast('Отметка сохранена только на этом устройстве');
   }
 }
 
@@ -580,10 +544,14 @@ const actions = {
     toast('Сохранено');
   },
   async 'toggle-hw'({ id }) {
-    const item = state.homework.find((other) => other.id === id);
-    if (!item) return;
     haptic();
-    await saveHomework({ ...item, done: !item.done });
+    if (id.startsWith('s')) {
+      await toggleSharedHomework(id);
+    } else {
+      const item = state.homework.find((other) => other.id === id);
+      if (!item) return;
+      await saveHomework({ ...item, done: !item.done });
+    }
     render();
   },
   async 'remove-hw'({ id }) {
@@ -632,19 +600,6 @@ function bindEvents() {
   }, { passive: true });
 }
 
-// Цвета темы из адреса применяем сразу: скрипт Telegram может загрузиться позже страницы
-function applyThemeFromUrl() {
-  const theme = new URLSearchParams(location.hash.slice(1)).get('tgWebAppThemeParams');
-  if (!theme) return;
-  try {
-    for (const [name, value] of Object.entries(JSON.parse(theme))) {
-      document.documentElement.style.setProperty(`--tg-theme-${name.replaceAll('_', '-')}`, value);
-    }
-  } catch {
-    // Останется оформление по умолчанию
-  }
-}
-
 function connectTelegram() {
   const webApp = window.Telegram?.WebApp;
   if (tg || !webApp?.initData) return;
@@ -685,7 +640,7 @@ function refreshClock() {
 }
 
 applyThemeFromUrl();
-state.homework = readStorage(HW_MIRROR_KEY) ?? [];
+loadLocalHomework();
 bindEvents();
 render();
 window.onTelegramReady = connectTelegram;
