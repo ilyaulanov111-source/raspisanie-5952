@@ -1,0 +1,336 @@
+/* Дополнения к style.css для панели создателя */
+.status {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  margin-top: 15px;
+  padding: 15px 16px;
+  border-radius: 20px;
+  background: var(--card);
+}
+
+.status h2 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.status p {
+  margin-top: 1px;
+  color: var(--hint);
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.status-light {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 5px rgba(46, 166, 111, 0.2);
+  animation: glow 2.4s ease-in-out infinite;
+}
+
+.status-warn .status-light {
+  background: var(--warn);
+  box-shadow: 0 0 0 5px rgba(240, 169, 42, 0.22);
+}
+
+.status-bad .status-light {
+  background: var(--danger);
+  box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.22);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tile {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.tile b {
+  display: block;
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile span {
+  color: var(--hint);
+  font-size: 12.5px;
+}
+
+.card {
+  margin-top: 8px;
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.card h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+  font-size: 14.5px;
+  font-weight: 680;
+}
+
+.card h3 small {
+  color: var(--hint);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.card .primary {
+  margin-top: 10px;
+}
+
+.card .hw-item {
+  margin: 8px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+}
+
+.primary-soft {
+  background: rgba(47, 127, 224, 0.13);
+  color: var(--info);
+}
+
+.muted {
+  color: var(--hint);
+  font-size: 13.5px;
+}
+
+.ticks {
+  display: flex;
+  gap: 2px;
+  height: 26px;
+}
+
+.ticks i {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 14px;
+  border-radius: 3px;
+}
+
+.ticks .ok {
+  background: var(--ok);
+}
+
+.ticks .bad {
+  background: var(--danger);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 10px;
+}
+
+.metrics b {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics span {
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 64px;
+}
+
+.bars i {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 4px 4px 2px 2px;
+  background: var(--accent);
+}
+
+.fame {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.feed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feed li {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.feed li:first-child {
+  border-top: 0;
+}
+
+.feed time {
+  color: var(--hint);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Опасная карточка: полоса как на предупреждающей ленте */
+.danger-card {
+  position: relative;
+  margin-top: 8px;
+  padding: 22px 16px 14px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #b4161b;
+  color: #fff;
+}
+
+.danger-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 9px;
+  background: repeating-linear-gradient(-45deg, #ffd21f 0 12px, #16181d 12px 24px);
+}
+
+.danger-card h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.danger-when {
+  margin-top: 2px;
+  font-size: 27px;
+  line-height: 1.15;
+  font-weight: 780;
+  letter-spacing: -0.02em;
+}
+
+.danger-card p {
+  font-size: 14px;
+}
+
+.danger-card .danger-when {
+  font-size: 27px;
+}
+
+.danger-card .danger-count {
+  margin-top: 7px;
+  opacity: 0.88;
+  font-size: 13px;
+}
+
+.person {
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.person h3 {
+  font-size: 15.5px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.person p {
+  margin-top: 2px;
+  color: var(--hint);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.person-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.mini {
+  padding: 6px 11px;
+  border-radius: 11px;
+  background: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mini-accent {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.choices-column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 13px;
+  font-size: 14.5px;
+}
+
+.switch input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.admin-hw {
+  grid-template-columns: 1fr auto;
+}
+
+.locked {
+  padding: 22vh 16px 0;
+  text-align: center;
+}
+
+.locked b {
+  display: block;
+  font-size: 46px;
+}
+
+.locked h1 {
+  margin-top: 8px;
+  font-size: 22px;
+  font-weight: 720;
+}
+
+.locked p {
+  margin-top: 6px;
+  color: var(--hint);
+}
+
+@keyframes glow {
+  50% { opacity: 0.55; }
+}
