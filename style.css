@@ -103,6 +103,11 @@ p {
   font-weight: 550;
 }
 
+.chip-short {
+  background: rgba(240, 169, 42, 0.18);
+  color: var(--warn);
+}
+
 .banner {
   margin-top: 12px;
   padding: 10px 13px;
