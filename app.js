@@ -142,6 +142,7 @@ function renderHead() {
   const chips = [
     today?.week ? `<span class="chip">${WEEK_NAMES[today.week]}</span>` : '',
     subgroup ? `<span class="chip">п/г ${subgroup}</span>` : '',
+    today?.short ? '<span class="chip chip-short">✂️ сокращённый день</span>' : '',
   ].join('');
   const warning = note.stale || !state.data.portal_ok || state.loadFailed
     ? `<p class="banner">${state.loadFailed ? 'Нет связи, показываю сохранённые данные.' : 'Портал давно не отвечал, свежие замены могут не отображаться.'}</p>`
@@ -173,7 +174,9 @@ function renderStrip() {
 }
 
 function allHomework() {
-  const shared = (state.data?.homework ?? []).map((item) => ({
+  const shared = (state.data?.homework ?? [])
+    .filter((item) => !subgroup || !item.subgroup || item.subgroup === subgroup)
+    .map((item) => ({
     ...item,
     id: `s${item.id}`,
     shared: true,
@@ -233,7 +236,7 @@ function renderDayList() {
   const relative = relativeDay(day.date);
   const title = relative ?? `${WEEKDAYS[dateParts(day.date).weekday]}`;
   const { day: number, month } = dateParts(day.date);
-  const small = `${number} ${MONTHS[month]}${day.week ? ` · ${WEEK_NAMES[day.week].split(' ')[0]}` : ''}`;
+  const small = `${number} ${MONTHS[month]}${day.week ? ` · ${WEEK_NAMES[day.week].split(' ')[0]}` : ''}${day.short ? ' · сокращённый' : ''}`;
   const heading = `<h2 class="section-title"><span>${esc(title)}</span><small>${esc(small)}</small></h2>`;
 
   const entries = visible(day);
@@ -306,7 +309,7 @@ function renderSharedHomeworkItem(item) {
         <strong>${esc(item.subject)} · ${esc(relativeDay(item.due) ?? shortDate(item.due))}</strong>
         <span>${esc(item.text)}</span>
       </div>
-      <i class="hw-shared-mark">общее</i>
+      <i class="hw-shared-mark">${item.subgroup ? `п/г ${item.subgroup}` : 'общее'}</i>
     </article>`;
 }
 
@@ -620,7 +623,7 @@ async function loadData() {
     revealSelectedDay();
   }
   try {
-    const response = await fetch(`data.json?t=${Date.now()}`, { cache: 'no-store' });
+    const response = await fetchFresh('data.json');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     state.data = await response.json();
     state.loadFailed = false;
