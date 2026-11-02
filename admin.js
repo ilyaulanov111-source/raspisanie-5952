@@ -104,7 +104,8 @@ function systemStatus() {
   if (pending) {
     return { tone: 'warn', title: `Заявок: ${pending}`, text: 'Ждут твоего решения во вкладке «Люди»' };
   }
-  return { tone: 'ok', title: 'Всё спокойно', text: `Портал отвечал ${dateLabel(portal.last_success)}` };
+  const next = portal.next_check ? `, следующая проверка ${dateLabel(portal.next_check)}` : '';
+  return { tone: 'ok', title: 'Всё спокойно', text: `Портал отвечал ${dateLabel(portal.last_success)}${next}` };
 }
 
 function renderStatusCard() {
