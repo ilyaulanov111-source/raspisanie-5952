@@ -1,0 +1,38 @@
+# Сторож телефона-сервера. Бот раз в час публикует данные в этот репозиторий; если коммитов
+# давно нет, телефон, его интернет или VPN не работают, и создателю уходит сообщение в Telegram.
+# Нужны секреты репозитория TELEGRAM_BOT_TOKEN и ADMIN_CHAT_ID.
+name: Сторож телефона
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Проверить, когда телефон последний раз публиковал данные
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+        run: |
+          send() {
+            curl -sS --fail "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+              --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text=$1" > /dev/null
+          }
+          last=$(gh api "repos/$GITHUB_REPOSITORY/commits?sha=main&per_page=1" --jq '.[0].commit.committer.date')
+          minutes=$(( ($(date +%s) - $(date -d "$last" +%s)) / 60 ))
+          echo "Последняя публикация $minutes мин назад"
+          # Ручной запуск проверяет сами секреты и доставку, поэтому пишет всегда
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            send "✅ Сторож на связи. Телефон последний раз публиковал данные $minutes мин назад."
+          fi
+          # Прогоны идут раз в 30 минут, поэтому окно 30 минут даёт одно сообщение на каждый порог
+          for limit in 150 360 1440; do
+            if [ "$minutes" -ge "$limit" ] && [ "$minutes" -lt $((limit + 30)) ]; then
+              send "⚠️ Телефон-сервер молчит уже $((minutes / 60)) ч. Проверь зарядку, интернет и VPN."
+            fi
+          done
