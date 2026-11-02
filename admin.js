@@ -229,6 +229,7 @@ function renderPulse() {
 function renderPerson(user) {
   const isCreator = user.id === state.panel.admin_id;
   const details = [
+    user.label ? user.name : null,
     user.username ? `@${user.username}` : 'без ника',
     user.subgroup ? `п/г ${user.subgroup}` : null,
     user.seen_at ? `заходил ${dateLabel(user.seen_at)}` : null,
@@ -243,11 +244,12 @@ function renderPerson(user) {
     rejected: decide('approve', 'Открыть доступ'),
     blocked: decide('approve', 'Разблокировать'),
   }[user.status];
+  const labelButton = `<button class="mini" data-action="label-edit" data-id="${user.id}">🏷 ${user.label ? 'Подпись' : 'Подписать'}</button>`;
   return `
     <article class="person">
-      <h3>${esc(user.name)}${isCreator ? ' <span class="tag tag-info">это ты</span>' : ''}</h3>
+      <h3>${esc(user.label || user.name)}${isCreator ? ' <span class="tag tag-info">это ты</span>' : ''}</h3>
       <p>${esc(details)}</p>
-      ${isCreator ? '' : `<div class="person-actions">${buttons}</div>`}
+      <div class="person-actions">${isCreator ? '' : buttons}${labelButton}</div>
     </article>`;
 }
 
@@ -265,10 +267,10 @@ function renderHomework() {
   const today = mskNow().date;
   const rows = items.map((item) => `
     <article class="hw-item admin-hw ${item.due < today ? 'is-done' : ''}">
-      <div class="hw-main">
-        <strong>${esc(item.subject)} · ${esc(relativeDay(item.due) ?? shortDate(item.due))}</strong>
+      <button class="hw-main" data-action="hw-open" data-id="${item.id}">
+        <strong>${esc(item.subject)} · ${esc(relativeDay(item.due) ?? shortDate(item.due))}${item.subgroup ? ` · п/г ${item.subgroup}` : ''}</strong>
         <span>${esc(item.text)}</span>
-      </div>
+      </button>
       <button class="hw-remove" data-action="hw-delete" data-id="${item.id}" aria-label="Удалить">×</button>
     </article>`).join('');
   const empty = items.length ? '' : '<div class="empty"><strong>Общих заданий нет</strong>Что добавишь здесь, увидят все в приложении.</div>';
@@ -333,12 +335,25 @@ function studyDays() {
   return (state.schedule?.days ?? []).filter((day) => day.date >= today && day.entries.length).slice(0, DATE_CHOICES);
 }
 
-function lessonDates(subject) {
+function lessonDates(subject, subgroup = null) {
   const today = mskNow().date;
+  const fits = (entry) => entry.subject === subject && entry.status !== 'cancelled'
+    && (!subgroup || !entry.subgroup || entry.subgroup === subgroup);
   return (state.schedule?.days ?? [])
-    .filter((day) => day.date > today && day.entries.some((entry) => entry.subject === subject && entry.status !== 'cancelled'))
+    .filter((day) => day.date > today && day.entries.some(fits))
     .slice(0, 3)
     .map((day) => day.date);
+}
+
+// Подгруппы предмета берём из расписания: если пары идут по подгруппам, ДЗ тоже можно дать отдельно
+function subjectSubgroups(subject) {
+  const found = new Set();
+  for (const day of state.schedule?.days ?? []) {
+    for (const entry of day.entries) {
+      if (entry.subject === subject && entry.subgroup) found.add(entry.subgroup);
+    }
+  }
+  return [...found].sort();
 }
 
 function choice(active, action, attributes, label) {
@@ -349,20 +364,38 @@ function renderHomeworkSheet(draft) {
   const subjects = (state.schedule?.subjects ?? [])
     .map((subject) => choice(subject === draft.subject, 'draft-subject', `data-subject="${esc(subject)}"`, subject))
     .join('');
-  const dueChoices = (draft.subject ? lessonDates(draft.subject) : [])
+  const dueChoices = (draft.subject ? lessonDates(draft.subject, draft.subgroup) : [])
     .map((iso, index) => choice(iso === draft.due, 'draft-due', `data-date="${iso}"`, `${index ? '' : 'След. пара · '}${shortDate(iso)}`))
     .join('');
+  const groups = draft.subject ? subjectSubgroups(draft.subject) : [];
+  if (draft.subgroup && !groups.includes(draft.subgroup)) groups.push(draft.subgroup);
+  const groupChoices = groups.length
+    ? `<span class="field-label">Для кого</span><div class="choices">
+        ${choice(!draft.subgroup, 'draft-subgroup', 'data-subgroup="0"', 'Для всех')}
+        ${groups.map((group) => choice(draft.subgroup === group, 'draft-subgroup', `data-subgroup="${group}"`, `${group} подгруппа`)).join('')}
+      </div>`
+    : '';
   return `
-    <h2>Общее задание</h2>
+    <h2>${draft.id ? 'Изменить задание' : 'Общее задание'}</h2>
     <span class="field-label">Предмет</span>
     <div class="choices choices-scroll">${subjects}</div>
+    ${groupChoices}
     <label class="field-label" for="draft-text">Что задали</label>
     <textarea class="input" id="draft-text" maxlength="1500" placeholder="Увидят все в приложении">${esc(draft.text)}</textarea>
     <span class="field-label">Срок</span>
     ${dueChoices ? `<div class="choices" style="margin-bottom:8px">${dueChoices}</div>` : ''}
     <input class="input" id="draft-due" type="date" value="${esc(draft.due)}" aria-label="Срок сдачи">
-    <label class="switch"><input type="checkbox" id="draft-notify" ${draft.notify ? 'checked' : ''}><span>Написать всем в личку</span></label>
-    <button class="primary" data-action="hw-save">Добавить</button>`;
+    <label class="switch"><input type="checkbox" id="draft-notify" ${draft.notify ? 'checked' : ''}><span>${draft.id ? 'Сообщить об изменении в личку' : 'Написать в личку'}</span></label>
+    <button class="primary" data-action="hw-save">${draft.id ? 'Сохранить' : 'Добавить'}</button>`;
+}
+
+function renderLabelSheet(draft) {
+  return `
+    <h2>Подпись</h2>
+    <p class="muted">${esc(draft.name)}. Подпись видишь только ты: в панели и в итогах решений по заявкам.</p>
+    <label class="field-label" for="draft-label">Например, имя и фамилия или «староста»</label>
+    <input class="input" id="draft-label" maxlength="60" value="${esc(draft.label)}">
+    <button class="primary" data-action="label-save">Сохранить</button>`;
 }
 
 function renderManualSheet(draft) {
@@ -394,7 +427,8 @@ function renderManualSheet(draft) {
 }
 
 function renderSheet() {
-  const content = state.draft.type === 'homework' ? renderHomeworkSheet(state.draft) : renderManualSheet(state.draft);
+  const renderers = { homework: renderHomeworkSheet, manual: renderManualSheet, label: renderLabelSheet };
+  const content = renderers[state.draft.type](state.draft);
   document.getElementById('sheet-root').innerHTML = `
     <div class="sheet-back" data-action="close-sheet"></div>
     <section class="sheet" role="dialog"><div class="sheet-grip"></div>${content}</section>`;
@@ -419,6 +453,7 @@ function keepDraft() {
   if (field('draft-due')) state.draft.due = field('draft-due').value;
   if (field('draft-room')) state.draft.room = field('draft-room').value;
   if (field('draft-notify')) state.draft.notify = field('draft-notify').checked;
+  if (field('draft-label')) state.draft.label = field('draft-label').value;
 }
 
 function updateDraft(change) {
@@ -450,22 +485,40 @@ const actions = {
     else run();
   },
   'hw-new'() {
-    openSheet({ type: 'homework', subject: '', text: '', due: '', notify: true });
+    openSheet({ type: 'homework', id: null, subject: '', text: '', due: '', subgroup: null, notify: true });
+  },
+  'hw-open'({ id }) {
+    const item = state.panel.homework.find((other) => other.id === Number(id));
+    if (item) openSheet({ type: 'homework', ...item, subgroup: item.subgroup || null, notify: false });
   },
   'draft-subject'({ subject }) {
-    updateDraft({ subject, due: lessonDates(subject)[0] ?? '' });
+    const subgroup = subjectSubgroups(subject).includes(state.draft.subgroup) ? state.draft.subgroup : null;
+    updateDraft({ subject, subgroup, due: lessonDates(subject, subgroup)[0] ?? '' });
+  },
+  'draft-subgroup'({ subgroup }) {
+    const value = Number(subgroup) || null;
+    updateDraft({ subgroup: value, due: lessonDates(state.draft.subject, value)[0] ?? state.draft.due });
+  },
+  'label-edit'({ id }) {
+    const user = state.panel.users.find((other) => other.id === Number(id));
+    if (user) openSheet({ type: 'label', id: user.id, name: user.name, label: user.label ?? '' });
+  },
+  'label-save'() {
+    keepDraft();
+    send({ a: 'user_label', id: state.draft.id, label: state.draft.label.trim() });
   },
   'draft-due'({ date }) {
     updateDraft({ due: date });
   },
   'hw-save'() {
     keepDraft();
-    const { subject, text, due, notify } = state.draft;
+    const { id, subject, text, due, notify, subgroup } = state.draft;
     if (!subject || !text.trim() || !due) {
       toast('Укажи предмет, задание и срок');
       return;
     }
-    send({ a: 'hw_add', subject, text: text.trim(), due, notify });
+    const fields = { subject, text: text.trim(), due, notify, subgroup: subgroup || 0 };
+    send(id ? { a: 'hw_edit', id, ...fields } : { a: 'hw_add', ...fields });
   },
   'hw-delete'({ id }) {
     confirmThen('Удалить это задание у всех?', () => send({ a: 'hw_del', id: Number(id) }));
@@ -532,11 +585,7 @@ async function loadPanel() {
     return;
   }
   try {
-    const stamp = Date.now();
-    const [blob, schedule] = await Promise.all([
-      fetch(`admin.bin?t=${stamp}`, { cache: 'no-store' }),
-      fetch(`data.json?t=${stamp}`, { cache: 'no-store' }),
-    ]);
+    const [blob, schedule] = await Promise.all([fetchFresh('admin.bin'), fetchFresh('data.json')]);
     if (!blob.ok) throw new Error(`HTTP ${blob.status}`);
     state.panel = await decrypt(await blob.arrayBuffer(), panelKey);
     state.schedule = schedule.ok ? await schedule.json() : null;
