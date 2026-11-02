@@ -134,6 +134,95 @@
   background: var(--danger);
 }
 
+.battery {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 10px;
+  --level: var(--ok);
+}
+
+.battery-warn {
+  --level: var(--warn);
+}
+
+.battery-danger {
+  --level: var(--danger);
+}
+
+/* Корпус батареи с «пипкой» справа, заливка по уровню заряда */
+.battery-shell {
+  position: relative;
+  flex: 0 0 auto;
+  width: 58px;
+  height: 28px;
+  padding: 3px;
+  border: 2px solid var(--level);
+  border-radius: 8px;
+}
+
+.battery-shell::after {
+  position: absolute;
+  top: 8px;
+  right: -6px;
+  width: 4px;
+  height: 8px;
+  border-radius: 0 3px 3px 0;
+  background: var(--level);
+  content: "";
+}
+
+.battery-shell i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--level);
+}
+
+.battery b {
+  display: block;
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.battery span {
+  display: block;
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.battery .danger-text {
+  color: var(--danger);
+}
+
+.net-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.net-row span {
+  flex: 0 0 auto;
+  color: var(--hint);
+}
+
+.net-row b {
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.phone-metrics {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
