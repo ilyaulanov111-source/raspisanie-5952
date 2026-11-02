@@ -20,6 +20,16 @@ const STATUS = {
 };
 
 const subgroup = Number(new URLSearchParams(location.search).get('sg')) || null;
+// Ключ к личным оценкам есть только в кнопке «Расписание» того, кого создатель связал с таблицей
+const gradesKey = (new URLSearchParams(location.search).get('g') ?? '').toLowerCase();
+const GRADES_CACHE_KEY = 'tt_grades_v1';
+const GRADES_TEACHER = 'Шульцев';
+const VISITS = {
+  '+': { label: 'был', tone: 'safe' },
+  '-': { label: 'пропуск', tone: 'danger' },
+  'Б': { label: 'болел', tone: 'info' },
+  'У': { label: 'уважительная', tone: 'info' },
+};
 
 const state = {
   data: null,
@@ -29,6 +39,8 @@ const state = {
   sharedDone: new Set(),
   draft: null,
   loadFailed: false,
+  grades: null,
+  gradesFailed: false,
 };
 
 function visible(day) {
@@ -143,6 +155,7 @@ function renderHead() {
     today?.week ? `<span class="chip">${WEEK_NAMES[today.week]}</span>` : '',
     subgroup ? `<span class="chip">п/г ${subgroup}</span>` : '',
     today?.short ? '<span class="chip chip-short">✂️ сокращённый день</span>' : '',
+    '<button class="chip chip-button" data-action="settings">⚙️ Настройки</button>',
   ].join('');
   const warning = note.stale || !state.data.portal_ok || state.loadFailed
     ? `<p class="banner">${state.loadFailed ? 'Нет связи, показываю сохранённые данные.' : 'Портал давно не отвечал, свежие замены могут не отображаться.'}</p>`
@@ -189,6 +202,16 @@ function homeworkFor(date, subject) {
   return allHomework().filter((item) => item.due === date && item.subject === subject && !item.done);
 }
 
+// Темы занятий Шульцева из его журнала: тема этого дня или, для будущей пары, тема прошлой
+function topicLine(day, entry) {
+  if (!entry.teacher.includes(GRADES_TEACHER)) return '';
+  const topics = state.data.topics ?? [];
+  const same = topics.find((item) => item.date === day.date);
+  if (same) return `<p class="topic">📖 ${esc(same.topic)}</p>`;
+  const before = topics.filter((item) => item.date < day.date).pop();
+  return before ? `<p class="topic">📖 Прошлое занятие: ${esc(before.topic)}</p>` : '';
+}
+
 function dangerTag(entry) {
   if (!entry.danger) return '';
   return entry.status === 'cancelled'
@@ -224,7 +247,7 @@ function renderLesson(day, entry, isNow) {
       <div class="lesson-body" style="--subject:${subjectColor(entry.subject)}">
         <div class="lesson-top"><span>${pairLabel}${sub}</span>${tag}${manualTag(entry)}${dangerTag(entry)}</div>
         <h3>${esc(entry.subject)}</h3>
-        ${details ? `<p>${esc(details)}</p>` : ''}${note}${was}
+        ${details ? `<p>${esc(details)}</p>` : ''}${note}${was}${topicLine(day, entry)}
         <div class="lesson-foot">${tasks}${addButton}</div>
       </div>
     </article>`;
@@ -346,6 +369,79 @@ function renderHomework() {
     <button class="fab" data-action="add-hw" aria-label="Добавить задание">+</button>`;
 }
 
+function gradeTone(value) {
+  const number = parseFloat(String(value).replace(',', '.'));
+  if (Number.isNaN(number)) return 'none';
+  if (number >= 4.5) return 'top';
+  if (number >= 3.5) return 'good';
+  if (number >= 2.5) return 'mid';
+  return 'low';
+}
+
+function renderGrades() {
+  const heading = '<h1 class="section-title page-title">Оценки</h1>';
+  if (!gradesKey) {
+    return `${heading}<div class="empty"><strong>Оценки по ОАиП</strong>Появятся здесь, когда создатель свяжет тебя с таблицей Шульцева. Напиши ему, это минута.</div>`;
+  }
+  if (!state.grades) {
+    return state.gradesFailed
+      ? `${heading}<div class="empty"><strong>Не удалось загрузить оценки</strong>Проверь интернет и открой приложение ещё раз.</div>`
+      : `${heading}<div class="skeleton"></div><div class="skeleton"></div>`;
+  }
+  const grades = state.grades;
+  const attendance = parseFloat(String(grades.attendance).replace(',', '.'));
+  const works = grades.works.map((work) => `
+    <div class="grade-row">
+      <span>${esc(work.title)}</span>
+      <b class="grade-chip tone-${gradeTone(work.mark)}">${esc(work.mark)}</b>
+    </div>`).join('');
+  const lessons = grades.lessons.map((lesson) => {
+    const visit = VISITS[lesson.mark];
+    const when = lesson.date ? shortDate(lesson.date) : lesson.label;
+    const tag = visit ? `<span class="tag tag-${visit.tone}">${visit.label}</span>` : '<span class="tag tag-muted">нет отметки</span>';
+    return `
+      <div class="grade-lesson">
+        <div><strong>${esc(when)}</strong><span>${esc(lesson.topic || 'Без темы')}</span></div>
+        ${tag}
+      </div>`;
+  }).join('');
+  const missed = grades.lessons.filter((lesson) => lesson.mark === '-').length;
+  const updated = grades.checked_at ? `обновлено ${esc(dateLabelShort(grades.checked_at))}` : '';
+  return `${heading}
+    <p class="grade-subtitle">${esc(grades.title)}${updated ? ` · ${updated}` : ''}</p>
+    <section class="grade-hero tone-${gradeTone(grades.final)}">
+      <div class="grade-final"><b>${esc(grades.final || '—')}</b><span>итог</span></div>
+      <div class="grade-stats">
+        <p><b>${esc(grades.average || '—')}</b> средний балл</p>
+        <p><b>${esc(grades.attendance || '—')}%</b> посещаемость${missed ? ` · ${missed} ${plural(missed, 'пропуск', 'пропуска', 'пропусков')}` : ''}</p>
+        <div class="grade-bar"><i style="width:${Number.isNaN(attendance) ? 0 : Math.min(100, attendance)}%"></i></div>
+      </div>
+    </section>
+    ${works ? `<h2 class="hw-group">Практические работы</h2><section class="grade-card">${works}</section>` : ''}
+    ${lessons ? `<h2 class="hw-group">Журнал занятий</h2><section class="grade-card">${lessons}</section>` : ''}`;
+}
+
+function dateLabelShort(iso) {
+  const day = iso.slice(0, 10);
+  const relative = relativeDay(day);
+  return relative ? `${relative.toLowerCase()} в ${iso.slice(11, 16)}` : shortDate(day);
+}
+
+async function loadGrades() {
+  if (!/^[0-9a-f]{64}$/.test(gradesKey)) return;
+  state.grades = readStorage(GRADES_CACHE_KEY);
+  try {
+    const name = (await sha256Hex(gradesKey)).slice(0, 24);
+    const response = await fetchFresh(`g/${name}.bin`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.grades = await decrypt(await response.arrayBuffer(), gradesKey);
+    writeStorage(GRADES_CACHE_KEY, state.grades);
+  } catch {
+    state.gradesFailed = !state.grades;
+  }
+  if (state.tab === 'grades') render();
+}
+
 function renderBadges() {
   const today = mskNow().date;
   const counters = {
@@ -373,6 +469,7 @@ function render() {
   if (state.tab === 'schedule') view.innerHTML = renderSchedule();
   if (state.tab === 'changes') view.innerHTML = renderChanges();
   if (state.tab === 'homework') view.innerHTML = renderHomework();
+  if (state.tab === 'grades') view.innerHTML = renderGrades();
   renderBadges();
 }
 
@@ -533,6 +630,17 @@ const actions = {
   'close-sheet'() {
     closeSheet();
   },
+  settings() {
+    // Настройки живут в боте: кнопка открывает чат с ним, бот присылает переключатели
+    const bot = state.data?.bot;
+    if (!bot) {
+      toast('Настройки появятся после обновления данных');
+      return;
+    }
+    const link = `https://t.me/${bot}?start=settings`;
+    if (tg?.openTelegramLink) tg.openTelegramLink(link);
+    else window.open(link, '_blank');
+  },
   async 'save-hw'() {
     keepDraftText();
     const { id, subject, text, due, done } = state.draft;
@@ -649,6 +757,7 @@ render();
 window.onTelegramReady = connectTelegram;
 connectTelegram();
 loadData();
+loadGrades();
 setInterval(refreshClock, 30000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refreshClock();
