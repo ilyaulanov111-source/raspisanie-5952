@@ -195,14 +195,18 @@ function renderTopCancelled() {
 function renderGradesCard() {
   const { grades, users, grade_students: students } = state.panel;
   const linked = users.filter((user) => user.grades_name).length;
-  const status = grades.error
-    ? `<p class="danger-text">${esc(grades.error)}</p>`
-    : `<p class="muted">Проверена ${esc(dateLabel(grades.checked_at))}${grades.next_check ? `, следующая проверка ${esc(dateLabel(grades.next_check))}` : ''}</p>`;
+  // До обновления бота в снимке была одна таблица без списка
+  const sheets = (Array.isArray(grades) ? grades : [{ title: 'ОАиП', ...grades }]).map((sheet) => {
+    const status = sheet.error
+      ? `<span class="danger-text">${esc(sheet.error)}</span>`
+      : `проверена ${esc(dateLabel(sheet.checked_at))}${sheet.next_check ? `, следующая ${esc(dateLabel(sheet.next_check))}` : ''}`;
+    return `<p class="muted"><b>${esc(sheet.title)}</b>: ${status}</p>`;
+  }).join('');
   return `
     <section class="card">
-      <h3>Оценки Шульцева <small>связано ${linked} из ${students.length}</small></h3>
-      ${status}
-      <p class="muted">Таблица проверяется во время пар Шульцева, два часа после них и в 21:00. Свяжи человека со строкой таблицы в его подписи во вкладке «Люди»: у него появится вкладка «Оценки» и уведомления о новых оценках.</p>
+      <h3>Оценки <small>связано ${linked} из ${students.length}</small></h3>
+      ${sheets}
+      <p class="muted">Каждая таблица проверяется во время пар своего преподавателя, два часа после них и в 21:00. Свяжи человека со строкой в его подписи во вкладке «Люди»: одна связь работает для всех таблиц, у человека появится вкладка «Оценки» и уведомления о новых оценках.</p>
       ${renderHiddenStudents()}
     </section>`;
 }
