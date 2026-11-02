@@ -22,8 +22,7 @@ const STATUS = {
 const subgroup = Number(new URLSearchParams(location.search).get('sg')) || null;
 // Ключ к личным оценкам есть только в кнопке «Расписание» того, кого создатель связал с таблицей
 const gradesKey = (new URLSearchParams(location.search).get('g') ?? '').toLowerCase();
-const GRADES_CACHE_KEY = 'tt_grades_v1';
-const GRADES_TEACHER = 'Шульцев';
+const GRADES_CACHE_KEY = 'tt_grades_v2';
 const VISITS = {
   '+': { label: 'был', tone: 'safe' },
   '-': { label: 'пропуск', tone: 'danger' },
@@ -41,6 +40,7 @@ const state = {
   loadFailed: false,
   grades: null,
   gradesFailed: false,
+  gradeSubject: 0,
 };
 
 function visible(day) {
@@ -202,10 +202,10 @@ function homeworkFor(date, subject) {
   return allHomework().filter((item) => item.due === date && item.subject === subject && !item.done);
 }
 
-// Темы занятий Шульцева из его журнала: тема этого дня или, для будущей пары, тема прошлой
+// Темы из журналов преподавателей: тема этого дня или, для будущей пары, тема прошлой
 function topicLine(day, entry) {
-  if (!entry.teacher.includes(GRADES_TEACHER)) return '';
-  const topics = state.data.topics ?? [];
+  const topics = (state.data.topics ?? []).filter((item) => item.teacher && entry.teacher.includes(item.teacher));
+  if (!topics.length) return '';
   const same = topics.find((item) => item.date === day.date);
   if (same) return `<p class="topic">📖 ${esc(same.topic)}</p>`;
   const before = topics.filter((item) => item.date < day.date).pop();
@@ -381,14 +381,35 @@ function gradeTone(value) {
 function renderGrades() {
   const heading = '<h1 class="section-title page-title">Оценки</h1>';
   if (!gradesKey) {
-    return `${heading}<div class="empty"><strong>Оценки по ОАиП</strong>Появятся здесь, когда создатель свяжет тебя с таблицей Шульцева. Напиши ему, это минута.</div>`;
+    return `${heading}<div class="empty"><strong>Оценки по ОАиП и дискретке</strong>Появятся здесь, когда создатель свяжет тебя со строкой в таблицах преподавателей. Напиши ему, это минута.</div>`;
   }
   if (!state.grades) {
     return state.gradesFailed
       ? `${heading}<div class="empty"><strong>Не удалось загрузить оценки</strong>Проверь интернет и открой приложение ещё раз.</div>`
       : `${heading}<div class="skeleton"></div><div class="skeleton"></div>`;
   }
-  const grades = state.grades;
+  // Раньше в файле был один предмет без списка
+  const subjects = state.grades.subjects ?? [state.grades];
+  const index = Math.min(state.gradeSubject, subjects.length - 1);
+  const switcher = subjects.length > 1
+    ? `<div class="grade-switch">${subjects.map((subject, i) => `
+        <button class="${i === index ? 'is-active' : ''}" data-action="grade-subject" data-index="${i}" aria-pressed="${i === index}">${esc(subject.short ?? subject.title)}</button>`).join('')}
+      </div>`
+    : '';
+  return heading + switcher + renderSubjectGrades(subjects[index]);
+}
+
+function lessonMark(grades, lesson) {
+  if (grades.graded) {
+    return lesson.mark
+      ? `<b class="grade-chip tone-${gradeTone(lesson.mark)}">${esc(lesson.mark)}</b>`
+      : '<span class="tag tag-muted">нет оценки</span>';
+  }
+  const visit = VISITS[lesson.mark];
+  return visit ? `<span class="tag tag-${visit.tone}">${visit.label}</span>` : '<span class="tag tag-muted">нет отметки</span>';
+}
+
+function renderSubjectGrades(grades) {
   const attendance = parseFloat(String(grades.attendance).replace(',', '.'));
   const works = grades.works.map((work) => `
     <div class="grade-row">
@@ -396,28 +417,34 @@ function renderGrades() {
       <b class="grade-chip tone-${gradeTone(work.mark)}">${esc(work.mark)}</b>
     </div>`).join('');
   const lessons = grades.lessons.map((lesson) => {
-    const visit = VISITS[lesson.mark];
     const when = lesson.date ? shortDate(lesson.date) : lesson.label;
-    const tag = visit ? `<span class="tag tag-${visit.tone}">${visit.label}</span>` : '<span class="tag tag-muted">нет отметки</span>';
     return `
       <div class="grade-lesson">
         <div><strong>${esc(when)}</strong><span>${esc(lesson.topic || 'Без темы')}</span></div>
-        ${tag}
+        ${lessonMark(grades, lesson)}
       </div>`;
   }).join('');
-  const missed = grades.lessons.filter((lesson) => lesson.mark === '-').length;
+  let second;
+  if (grades.graded) {
+    const marked = grades.lessons.filter((lesson) => lesson.mark).length;
+    second = `<p><b>${marked}</b> ${plural(marked, 'оценка', 'оценки', 'оценок')} за занятия</p>`;
+  } else {
+    const missed = grades.lessons.filter((lesson) => lesson.mark === '-').length;
+    second = `
+      <p><b>${esc(grades.attendance || '—')}%</b> посещаемость${missed ? ` · ${missed} ${plural(missed, 'пропуск', 'пропуска', 'пропусков')}` : ''}</p>
+      <div class="grade-bar"><i style="width:${Number.isNaN(attendance) ? 0 : Math.min(100, attendance)}%"></i></div>`;
+  }
   const updated = grades.checked_at ? `обновлено ${esc(dateLabelShort(grades.checked_at))}` : '';
-  return `${heading}
+  return `
     <p class="grade-subtitle">${esc(grades.title)}${updated ? ` · ${updated}` : ''}</p>
     <section class="grade-hero tone-${gradeTone(grades.final)}">
       <div class="grade-final"><b>${esc(grades.final || '—')}</b><span>итог</span></div>
       <div class="grade-stats">
         <p><b>${esc(grades.average || '—')}</b> средний балл</p>
-        <p><b>${esc(grades.attendance || '—')}%</b> посещаемость${missed ? ` · ${missed} ${plural(missed, 'пропуск', 'пропуска', 'пропусков')}` : ''}</p>
-        <div class="grade-bar"><i style="width:${Number.isNaN(attendance) ? 0 : Math.min(100, attendance)}%"></i></div>
+        ${second}
       </div>
     </section>
-    ${works ? `<h2 class="hw-group">Практические работы</h2><section class="grade-card">${works}</section>` : ''}
+    ${works ? `<h2 class="hw-group">${esc(grades.works_title ?? 'Практические работы')}</h2><section class="grade-card">${works}</section>` : ''}
     ${lessons ? `<h2 class="hw-group">Журнал занятий</h2><section class="grade-card">${lessons}</section>` : ''}`;
 }
 
@@ -600,6 +627,11 @@ const actions = {
     render();
     if (tab === 'schedule') revealSelectedDay();
     window.scrollTo(0, 0);
+    haptic();
+  },
+  'grade-subject'({ index }) {
+    state.gradeSubject = Number(index);
+    render();
     haptic();
   },
   day({ date }) {
