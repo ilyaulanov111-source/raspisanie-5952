@@ -210,12 +210,12 @@ function renderGradesCard() {
   const linked = users.filter((user) => user.grades_name).length;
   const status = grades.error
     ? `<p class="danger-text">${esc(grades.error)}</p>`
-    : `<p class="muted">Проверена ${esc(dateLabel(grades.checked_at))}</p>`;
+    : `<p class="muted">Проверена ${esc(dateLabel(grades.checked_at))}${grades.next_check ? `, следующая проверка ${esc(dateLabel(grades.next_check))}` : ''}</p>`;
   return `
     <section class="card">
       <h3>Оценки Шульцева <small>связано ${linked} из ${students.length}</small></h3>
       ${status}
-      <p class="muted">Свяжи человека со строкой таблицы в его подписи во вкладке «Люди»: он получит /grades и уведомления о новых оценках.</p>
+      <p class="muted">Таблица проверяется во время пар Шульцева, два часа после них и в 21:00. Свяжи человека со строкой таблицы в его подписи во вкладке «Люди»: он получит /grades и уведомления о новых оценках.</p>
     </section>`;
 }
 
