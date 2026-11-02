@@ -310,6 +310,14 @@
   grid-template-columns: 1fr auto;
 }
 
+.hide-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .danger-text {
   color: var(--danger);
   font-size: 13.5px;
