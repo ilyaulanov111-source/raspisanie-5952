@@ -135,6 +135,25 @@ async function fetchFresh(name) {
   return fetch(`${name}?t=${stamp}`, { cache: 'no-store' });
 }
 
+function hexToBytes(hex) {
+  return Uint8Array.from(hex.match(/../g).map((byte) => parseInt(byte, 16)));
+}
+
+// Личные данные лежат на публичном сайте зашифрованными: AES-256-CTR, первые 8 байт файла начинают счётчик
+async function decrypt(buffer, hexKey) {
+  const bytes = new Uint8Array(buffer);
+  const counter = new Uint8Array(16);
+  counter.set(bytes.subarray(0, 8));
+  const key = await crypto.subtle.importKey('raw', hexToBytes(hexKey), 'AES-CTR', false, ['decrypt']);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-CTR', counter, length: 64 }, key, bytes.subarray(8));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 // Цвета темы из адреса применяем сразу: скрипт Telegram может загрузиться позже страницы
 function applyThemeFromUrl() {
   const theme = new URLSearchParams(location.hash.slice(1)).get('tgWebAppThemeParams');
