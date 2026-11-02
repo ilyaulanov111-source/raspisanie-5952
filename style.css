@@ -103,6 +103,149 @@ p {
   font-weight: 550;
 }
 
+.chip-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.page-title {
+  margin-top: 2px;
+  font-size: 25px;
+}
+
+.topic {
+  color: var(--info) !important;
+}
+
+.tag-muted {
+  background: var(--bg);
+  color: var(--hint);
+}
+
+.grade-subtitle {
+  margin: -4px 2px 12px;
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.grade-hero {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border-radius: 22px;
+  background: var(--card);
+}
+
+.grade-final {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  align-content: center;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: var(--tone, var(--accent));
+  color: #fff;
+}
+
+.grade-final b {
+  font-size: 38px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.grade-final span {
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.grade-stats {
+  flex: 1;
+  min-width: 0;
+}
+
+.grade-stats p {
+  color: var(--hint);
+  font-size: 13.5px;
+}
+
+.grade-stats p + p {
+  margin-top: 4px;
+}
+
+.grade-stats b {
+  color: var(--text);
+  font-size: 17px;
+}
+
+.grade-bar {
+  height: 7px;
+  margin-top: 8px;
+  border-radius: 99px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.grade-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tone, var(--accent));
+}
+
+.tone-top { --tone: #2ea66f; }
+.tone-good { --tone: #2f7fe0; }
+.tone-mid { --tone: #d98a00; }
+.tone-low { --tone: #e5484d; }
+.tone-none { --tone: #8b92a0; }
+
+.grade-card {
+  padding: 4px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.grade-row,
+.grade-lesson {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.grade-row + .grade-row,
+.grade-lesson + .grade-lesson {
+  border-top: 1px solid var(--line);
+}
+
+.grade-chip {
+  min-width: 42px;
+  padding: 4px 9px;
+  border-radius: 10px;
+  background: var(--tone);
+  color: #fff;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.grade-lesson div {
+  min-width: 0;
+}
+
+.grade-lesson strong {
+  display: block;
+  font-size: 14px;
+}
+
+.grade-lesson span {
+  color: var(--hint);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .chip-short {
   background: rgba(240, 169, 42, 0.18);
   color: var(--warn);
