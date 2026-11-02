@@ -110,6 +110,31 @@ function toast(text) {
   toast.timer = setTimeout(() => { element.hidden = true; }, 2600);
 }
 
+// GitHub Pages пересобирает сайт 30–60 секунд после каждого изменения, а API отдаёт новый файл сразу.
+// У API лимит 60 запросов в час на адрес, поэтому при отказе берём файл с Pages.
+function repositoryOfSite() {
+  const owner = location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : '';
+  const repo = location.pathname.split('/').filter(Boolean)[0];
+  return owner && repo ? `${owner}/${repo}` : null;
+}
+
+async function fetchFresh(name) {
+  const stamp = Date.now();
+  const repository = repositoryOfSite();
+  if (repository) {
+    try {
+      const response = await fetch(`https://api.github.com/repos/${repository}/contents/${name}?ref=main&t=${stamp}`, {
+        headers: { Accept: 'application/vnd.github.raw' },
+        cache: 'no-store',
+      });
+      if (response.ok) return response;
+    } catch {
+      // Ниже попробуем Pages
+    }
+  }
+  return fetch(`${name}?t=${stamp}`, { cache: 'no-store' });
+}
+
 // Цвета темы из адреса применяем сразу: скрипт Telegram может загрузиться позже страницы
 function applyThemeFromUrl() {
   const theme = new URLSearchParams(location.hash.slice(1)).get('tgWebAppThemeParams');
