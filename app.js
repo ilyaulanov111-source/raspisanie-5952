@@ -638,8 +638,11 @@ const actions = {
       return;
     }
     const link = `https://t.me/${bot}?start=settings`;
-    if (tg?.openTelegramLink) tg.openTelegramLink(link);
-    else window.open(link, '_blank');
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink(link);
+      // Иначе приложение остаётся поверх чата и присланных переключателей не видно
+      tg.close();
+    } else window.open(link, '_blank');
   },
   async 'save-hw'() {
     keepDraftText();
