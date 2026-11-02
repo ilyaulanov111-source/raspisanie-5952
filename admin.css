@@ -310,6 +310,78 @@
   grid-template-columns: 1fr auto;
 }
 
+.danger-text {
+  color: var(--danger);
+  font-size: 13.5px;
+}
+
+.poll {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.poll:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.poll-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.poll-head strong {
+  overflow-wrap: anywhere;
+}
+
+.poll-option {
+  margin-top: 8px;
+}
+
+.poll-option small {
+  display: block;
+  margin-top: 3px;
+  color: var(--hint);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.poll-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.poll-bar {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 99px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.poll-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.poll-inputs {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+select.input {
+  appearance: auto;
+}
+
 .locked {
   padding: 22vh 16px 0;
   text-align: center;
