@@ -152,15 +152,82 @@ function uptimeLabel(minutes) {
   return `${minutes} мин`;
 }
 
+const BATTERY_STATUS = {
+  CHARGING: 'заряжается',
+  FULL: 'заряжен',
+  DISCHARGING: 'работает от батареи',
+  NOT_CHARGING: 'не заряжается',
+};
+const BATTERY_HEALTH = {
+  OVERHEAT: 'перегрев',
+  COLD: 'переохлаждение',
+  DEAD: 'батарея изношена',
+  OVER_VOLTAGE: 'перенапряжение',
+  UNSPECIFIED_FAILURE: 'сбой батареи',
+};
+
+function renderBattery(battery) {
+  if (!battery) {
+    return '<p class="muted">Заряд появится, когда на телефоне будет приложение Termux:API: Android отдаёт заряд только ему.</p>';
+  }
+  const tone = battery.charging || battery.percent >= 50 ? 'ok' : battery.percent >= 25 ? 'warn' : 'danger';
+  const problem = BATTERY_HEALTH[battery.health];
+  const details = [
+    BATTERY_STATUS[battery.status] ?? battery.status.toLowerCase(),
+    battery.temp_c === null ? '' : `батарея ${String(battery.temp_c).replace('.', ',')}°`,
+  ].filter(Boolean).join(' · ');
+  return `
+    <div class="battery battery-${tone}">
+      <div class="battery-shell"><i style="width:${Math.max(3, Math.min(100, battery.percent))}%"></i></div>
+      <div>
+        <b>${battery.percent}%${battery.charging ? ' ⚡' : ''}</b>
+        <span>${esc(details)}</span>
+        ${problem ? `<span class="danger-text">${esc(problem)}</span>` : ''}
+      </div>
+    </div>`;
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 2 ** 30) return `${(bytes / 2 ** 30).toFixed(1).replace('.', ',')} ГБ`;
+  return `${Math.round(bytes / 2 ** 20)} МБ`;
+}
+
+function signalLabel(signal) {
+  if (!signal) return '';
+  const words = ['нет сигнала', 'слабый', 'так себе', 'хороший', 'отличный'];
+  const level = words[signal.level] ?? '';
+  return [level ? `сигнал ${level}` : '', signal.dbm ? `${signal.dbm} дБм`.replace('-', '−') : ''].filter(Boolean).join(', ');
+}
+
+function renderNetwork(network, traffic) {
+  if (!network) return '';
+  const row = (label, value, bad = false) => `<p class="net-row"><span>${esc(label)}</span><b class="${bad ? 'danger-text' : ''}">${esc(value)}</b></p>`;
+  const cellular = network.sim_ready
+    ? [network.type || 'нет сети', network.operator, signalLabel(network.signal)].filter(Boolean).join(' · ')
+    : 'SIM-карта не видна';
+  const mobile = traffic?.mobile;
+  const usage = mobile === undefined
+    ? ''
+    : row('Трафик сегодня', `${formatBytes(mobile)}${traffic.usb ? `, компьютер ${formatBytes(traffic.usb)}` : ''}`);
+  return `
+    ${row('Мобильная сеть', cellular, !network.sim_ready || !network.type)}
+    ${row('VPN для Telegram', network.vpn ? 'работает' : 'выключен', !network.vpn)}
+    ${row('Раздача по USB', network.usb_tethering ? 'включена' : 'выключена', !network.usb_tethering)}
+    ${usage}`;
+}
+
 function renderPhone() {
   const { phone, outbox } = state.panel;
   const metric = (value, label) => `<div><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
-  const known = (value, suffix, label) => (value === null ? '' : metric(`${value}${suffix}`, label));
+  const known = (value, suffix, label) => (value === null || value === undefined ? '' : metric(`${value}${suffix}`, label));
+  const sampled = phone.sampled_at ? `<small>${esc(dateLabel(phone.sampled_at))}</small>` : '';
   return `
     <section class="card">
-      <h3>Телефон-сервер</h3>
-      <div class="metrics">
-        ${known(phone.temp_c, '°', 'температура')}
+      <h3>Телефон-сервер ${sampled}</h3>
+      ${renderBattery(phone.battery)}
+      ${renderNetwork(phone.network, phone.traffic_today)}
+      <div class="metrics phone-metrics">
+        ${known(phone.temp_c, '°', 'процессор')}
         ${known(phone.ram_free_mb, ' МБ', 'свободно памяти')}
         ${known(phone.disk_free_gb, ' ГБ', 'на диске')}
         ${metric(uptimeLabel(phone.bot_uptime_min), 'бот работает')}
