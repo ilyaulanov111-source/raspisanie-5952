@@ -33,19 +33,6 @@ const state = {
   lastAction: null,
 };
 
-function hexToBytes(hex) {
-  return Uint8Array.from(hex.match(/../g).map((byte) => parseInt(byte, 16)));
-}
-
-async function decrypt(buffer, hexKey) {
-  const bytes = new Uint8Array(buffer);
-  const counter = new Uint8Array(16);
-  counter.set(bytes.subarray(0, 8));
-  const key = await crypto.subtle.importKey('raw', hexToBytes(hexKey), 'AES-CTR', false, ['decrypt']);
-  const plain = await crypto.subtle.decrypt({ name: 'AES-CTR', counter, length: 64 }, key, bytes.subarray(8));
-  return JSON.parse(new TextDecoder().decode(plain));
-}
-
 function canSend() {
   return Boolean(tg) && !tg.initData;
 }
@@ -215,7 +202,32 @@ function renderGradesCard() {
     <section class="card">
       <h3>Оценки Шульцева <small>связано ${linked} из ${students.length}</small></h3>
       ${status}
-      <p class="muted">Таблица проверяется во время пар Шульцева, два часа после них и в 21:00. Свяжи человека со строкой таблицы в его подписи во вкладке «Люди»: он получит /grades и уведомления о новых оценках.</p>
+      <p class="muted">Таблица проверяется во время пар Шульцева, два часа после них и в 21:00. Свяжи человека со строкой таблицы в его подписи во вкладке «Люди»: у него появится вкладка «Оценки» и уведомления о новых оценках.</p>
+      ${renderHiddenStudents()}
+    </section>`;
+}
+
+function renderHiddenStudents() {
+  const hidden = (state.panel.grade_hidden ?? [])
+    .map((name) => `<button class="mini" data-action="grades-unhide" data-student="${esc(name)}">↩ ${esc(name)}</button>`)
+    .join('');
+  const options = state.panel.grade_students.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  return `
+    <span class="field-label">Скрыть строку из списка (например, кто ушёл из группы)</span>
+    <div class="hide-row">
+      <select class="input" id="hide-student"><option value="">— выбери —</option>${options}</select>
+      <button class="mini" data-action="grades-hide">Скрыть</button>
+    </div>
+    ${hidden ? `<div class="person-actions">${hidden}</div>` : ''}`;
+}
+
+function renderSafety() {
+  const { backup_at: backup, watchdog_error: watchdog } = state.panel;
+  return `
+    <section class="card">
+      <h3>Надёжность</h3>
+      <p class="muted">Резервная копия базы: ${backup ? esc(dateLabel(backup)) : 'ещё не делалась'}</p>
+      ${watchdog ? `<p class="danger-text">Сторож не выложен: ${esc(watchdog)}</p>` : '<p class="muted">Сторож телефона выложен на GitHub</p>'}
     </section>`;
 }
 
@@ -238,7 +250,7 @@ function renderHeading(title) {
 function renderPulse() {
   return `${renderHeading('Пульт')}${renderStatusCard()}${renderTiles()}
     <button class="primary" data-action="check">🔄 Проверить портал сейчас</button>
-    ${renderDanger()}${renderChecks()}${renderGradesCard()}${renderPhone()}${renderActivity()}${renderTopCancelled()}${renderEvents()}`;
+    ${renderDanger()}${renderChecks()}${renderGradesCard()}${renderSafety()}${renderPhone()}${renderActivity()}${renderTopCancelled()}${renderEvents()}`;
 }
 
 function renderPerson(user) {
@@ -635,6 +647,17 @@ const actions = {
     const action = { a: 'user_label', id: state.draft.id, label: state.draft.label.trim() };
     if (state.panel.grade_students.length) action.student = state.draft.student;
     send(action);
+  },
+  'grades-hide'() {
+    const student = document.getElementById('hide-student').value;
+    if (!student) {
+      toast('Выбери строку');
+      return;
+    }
+    confirmThen(`Скрыть «${student}» из списка?`, () => send({ a: 'grades_hide', student, hidden: true }));
+  },
+  'grades-unhide'({ student }) {
+    send({ a: 'grades_hide', student, hidden: false });
   },
   'poll-new'() {
     openSheet({ type: 'poll', question: '', options: ['', ''] });
