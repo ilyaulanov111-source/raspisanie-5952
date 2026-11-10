@@ -19,9 +19,13 @@ const STATUS = {
   room: { label: 'другая аудитория', tone: 'warn' },
 };
 
-const subgroup = Number(new URLSearchParams(location.search).get('sg')) || null;
-// Ключ к личным оценкам есть только в кнопке «Расписание» того, кого создатель связал с таблицей
-const gradesKey = (new URLSearchParams(location.search).get('g') ?? '').toLowerCase();
+// Подгруппа и ключ к личным оценкам приходят в адресе кнопок бота. У главного приложения из профиля
+// бота адрес общий для всех, поэтому их запоминаем в CloudStorage: оно своё у каждого человека
+const IDENTITY_KEY = 'identity';
+const urlParams = new URLSearchParams(location.search);
+const fromBot = urlParams.has('g');
+let subgroup = Number(urlParams.get('sg')) || null;
+let gradesKey = (urlParams.get('g') ?? '').toLowerCase();
 const GRADES_CACHE_KEY = 'tt_grades_v2';
 const VISITS = {
   '+': { label: 'был', tone: 'safe' },
@@ -515,6 +519,22 @@ function cloudCall(method, ...args) {
   });
 }
 
+async function loadIdentity() {
+  const current = JSON.stringify({ sg: subgroup, g: gradesKey });
+  if (fromBot) {
+    writeStorage(IDENTITY_KEY, current);
+    if (cloud()) await cloudCall('setItem', IDENTITY_KEY, current).catch(() => {});
+    return;
+  }
+  let saved = readStorage(IDENTITY_KEY);
+  if (cloud()) saved = (await cloudCall('getItem', IDENTITY_KEY).catch(() => '')) || saved;
+  if (!saved) return;
+  const identity = JSON.parse(saved);
+  subgroup = Number(identity.sg) || null;
+  gradesKey = String(identity.g ?? '').toLowerCase();
+  render();
+}
+
 function loadLocalHomework() {
   state.homework = readStorage(HW_MIRROR_KEY) ?? [];
   state.sharedDone = new Set(readStorage(SHARED_DONE_KEY) ?? []);
@@ -755,6 +775,8 @@ function connectTelegram() {
   if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
   tg.BackButton?.onClick(closeSheet);
   loadHomework().then(render);
+  // До загрузки Telegram подгруппа и ключ брались из копии в браузере; CloudStorage точнее
+  loadIdentity().finally(loadGrades);
 }
 
 async function loadData() {
@@ -792,7 +814,7 @@ render();
 window.onTelegramReady = connectTelegram;
 connectTelegram();
 loadData();
-loadGrades();
+loadIdentity().finally(loadGrades);
 setInterval(refreshClock, 30000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refreshClock();
