@@ -199,9 +199,15 @@ function signalLabel(signal) {
   return [level ? `сигнал ${level}` : '', signal.dbm ? `${signal.dbm} дБм`.replace('-', '−') : ''].filter(Boolean).join(', ');
 }
 
-function renderNetwork(network, traffic) {
+const INTERNET = { full: 'есть', whitelist: 'только белый список', none: 'нет' };
+
+function renderNetwork(network, traffic, link) {
   if (!network) return '';
   const row = (label, value, bad = false) => `<p class="net-row"><span>${esc(label)}</span><b class="${bad ? 'danger-text' : ''}">${esc(value)}</b></p>`;
+  const telegram = link?.checked_at
+    ? row('Telegram', link.telegram ? 'доступен' : `нет с ${dateLabel(link.telegram_down_since)}`, !link.telegram)
+      + row('Интернет', INTERNET[link.internet] ?? link.internet, link.internet !== 'full')
+    : '';
   const cellular = network.sim_ready
     ? [network.type || 'нет сети', network.operator, signalLabel(network.signal)].filter(Boolean).join(' · ')
     : 'SIM-карта не видна';
@@ -210,6 +216,7 @@ function renderNetwork(network, traffic) {
     ? ''
     : row('Трафик сегодня', `${formatBytes(mobile)}${traffic.usb ? `, компьютер ${formatBytes(traffic.usb)}` : ''}`);
   return `
+    ${telegram}
     ${row('Мобильная сеть', cellular, !network.sim_ready || !network.type)}
     ${row('VPN для Telegram', network.vpn ? 'работает' : 'выключен', !network.vpn)}
     ${row('Раздача по USB', network.usb_tethering ? 'включена' : 'выключена', !network.usb_tethering)}
@@ -225,7 +232,7 @@ function renderPhone() {
     <section class="card">
       <h3>Телефон-сервер ${sampled}</h3>
       ${renderBattery(phone.battery)}
-      ${renderNetwork(phone.network, phone.traffic_today)}
+      ${renderNetwork(phone.network, phone.traffic_today, phone.link)}
       <div class="metrics phone-metrics">
         ${known(phone.temp_c, '°', 'процессор')}
         ${known(phone.ram_free_mb, ' МБ', 'свободно памяти')}
