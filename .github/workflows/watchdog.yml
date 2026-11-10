@@ -33,6 +33,17 @@ jobs:
           # Прогоны идут раз в 30 минут, поэтому окно 30 минут даёт одно сообщение на каждый порог
           for limit in 150 360 1440; do
             if [ "$minutes" -ge "$limit" ] && [ "$minutes" -lt $((limit + 30)) ]; then
-              send "⚠️ Телефон-сервер молчит уже $((minutes / 60)) ч. Проверь зарядку, интернет и VPN."
+              send "⚠️ Телефон-сервер молчит уже $((minutes / 60)) ч. Проверь зарядку, интернет и VPN. Если у оператора белые списки, бот заработает сам, когда их снимут."
             fi
           done
+          # Телефон публикует, но Telegram у него недоступен: интернет есть, а VPN, скорее всего, завис
+          since=$(gh api "repos/$GITHUB_REPOSITORY/contents/status.json" -H "Accept: application/vnd.github.raw" --jq 'select(.telegram == false and .internet == "full") | .telegram_down_since // empty' 2>/dev/null || true)
+          if [ -n "$since" ]; then
+            down=$(( ($(date +%s) - $(date -d "$since" +%s)) / 60 ))
+            echo "Telegram недоступен $down мин"
+            for limit in 30 120 600; do
+              if [ "$down" -ge "$limit" ] && [ "$down" -lt $((limit + 30)) ]; then
+                send "📵 У телефона есть интернет, но Telegram недоступен уже $down мин. Скорее всего, завис VPN: открой AmneziaWG и переподключи туннель."
+              fi
+            done
+          fi
