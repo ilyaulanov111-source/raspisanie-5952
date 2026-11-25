@@ -374,6 +374,7 @@ function renderHomework() {
 }
 
 function gradeTone(value) {
+  if (/^н(?:\/|$)/i.test(String(value).trim())) return 'low';
   const number = parseFloat(String(value).replace(',', '.'));
   if (Number.isNaN(number)) return 'none';
   if (number >= 4.5) return 'top';
@@ -385,7 +386,7 @@ function gradeTone(value) {
 function renderGrades() {
   const heading = '<h1 class="section-title page-title">Оценки</h1>';
   if (!gradesKey) {
-    return `${heading}<div class="empty"><strong>Оценки по ОАиП и дискретке</strong>Появятся здесь, когда создатель свяжет тебя со строкой в таблицах преподавателей. Напиши ему, это минута.</div>`;
+    return `${heading}<div class="empty"><strong>Оценки по предметам</strong>Появятся здесь, когда создатель свяжет тебя со строкой в таблицах преподавателей. Напиши ему, это минута.</div>`;
   }
   if (!state.grades) {
     return state.gradesFailed
@@ -405,9 +406,11 @@ function renderGrades() {
 
 function lessonMark(grades, lesson) {
   if (grades.graded) {
-    return lesson.mark
-      ? `<b class="grade-chip tone-${gradeTone(lesson.mark)}">${esc(lesson.mark)}</b>`
-      : '<span class="tag tag-muted">нет оценки</span>';
+    const mark = String(lesson.mark || '').trim();
+    if (!mark) return '<span class="tag tag-muted">нет оценки</span>';
+    if (mark.toLowerCase() === 'н') return '<span class="tag tag-danger">не был</span>';
+    if (mark.toLowerCase() === 'б') return '<span class="tag tag-info">болел</span>';
+    return `<b class="grade-chip tone-${gradeTone(mark)}">${esc(mark)}</b>`;
   }
   const visit = VISITS[lesson.mark];
   return visit ? `<span class="tag tag-${visit.tone}">${visit.label}</span>` : '<span class="tag tag-muted">нет отметки</span>';
@@ -430,7 +433,7 @@ function renderSubjectGrades(grades) {
   }).join('');
   let second;
   if (grades.graded) {
-    const marked = grades.lessons.filter((lesson) => lesson.mark).length;
+    const marked = grades.lessons.filter((lesson) => lesson.mark && !/^[нб]$/i.test(String(lesson.mark).trim())).length;
     second = `<p><b>${marked}</b> ${plural(marked, 'оценка', 'оценки', 'оценок')} за занятия</p>`;
   } else {
     const missed = grades.lessons.filter((lesson) => lesson.mark === '-').length;
