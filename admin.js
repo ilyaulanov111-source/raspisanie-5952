@@ -204,8 +204,11 @@ const INTERNET = { full: 'есть', whitelist: 'только белый спи�
 function renderNetwork(network, traffic, link) {
   if (!network) return '';
   const row = (label, value, bad = false) => `<p class="net-row"><span>${esc(label)}</span><b class="${bad ? 'danger-text' : ''}">${esc(value)}</b></p>`;
+  const tgText = link?.telegram
+    ? (link.via === 'proxy' ? 'доступен (через ПК)' : 'доступен')
+    : `нет с ${dateLabel(link?.telegram_down_since)}`;
   const telegram = link?.checked_at
-    ? row('Telegram', link.telegram ? 'доступен' : `нет с ${dateLabel(link.telegram_down_since)}`, !link.telegram)
+    ? row('Telegram', tgText, !link.telegram)
       + row('Интернет', INTERNET[link.internet] ?? link.internet, link.internet !== 'full')
     : '';
   const cellular = network.sim_ready
