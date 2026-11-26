@@ -23,7 +23,11 @@ jobs:
             curl -sS --fail "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
               --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text=$1" > /dev/null
           }
-          last=$(gh api "repos/$GITHUB_REPOSITORY/commits?sha=main&per_page=1" --jq '.[0].commit.committer.date')
+          last=$(gh api "repos/$GITHUB_REPOSITORY/commits?sha=main&per_page=1" --jq '.[0].commit.committer.date // empty' 2>/dev/null || true)
+          if [ -z "$last" ]; then
+            echo "Не удалось получить время последнего коммита"
+            exit 0
+          fi
           minutes=$(( ($(date +%s) - $(date -d "$last" +%s)) / 60 ))
           echo "Последняя публикация $minutes мин назад"
           # Ручной запуск проверяет сами секреты и доставку, поэтому пишет всегда
