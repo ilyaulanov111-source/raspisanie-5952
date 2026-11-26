@@ -44,6 +44,7 @@ const state = {
   loadFailed: false,
   grades: null,
   gradesFailed: false,
+  gradesLoadedFor: '',
   gradeSubject: 0,
 };
 
@@ -148,7 +149,11 @@ function freshnessNote() {
   const minutes = Math.max(0, Math.round((Date.now() - checked) / 60000));
   if (minutes < 2) return { text: 'проверено только что', stale: false };
   const age = minutes < 60 ? `${minutes} мин` : minutes < 1440 ? `${Math.round(minutes / 60)} ч` : `${Math.round(minutes / 1440)} дн`;
-  return { text: `проверено ${age} назад`, stale: minutes > STALE_MINUTES };
+  const nextCheck = state.data.next_check ? Date.parse(state.data.next_check) : NaN;
+  const stale = Number.isNaN(nextCheck)
+    ? minutes > STALE_MINUTES
+    : Date.now() > nextCheck + 45 * 60000 || minutes > 26 * 60;
+  return { text: `проверено ${age} назад`, stale };
 }
 
 function renderHead() {
@@ -462,7 +467,8 @@ function dateLabelShort(iso) {
 }
 
 async function loadGrades() {
-  if (!/^[0-9a-f]{64}$/.test(gradesKey)) return;
+  if (!/^[0-9a-f]{64}$/.test(gradesKey) || state.gradesLoadedFor === gradesKey) return;
+  state.gradesLoadedFor = gradesKey;
   state.grades = readStorage(GRADES_CACHE_KEY);
   try {
     const name = (await sha256Hex(gradesKey)).slice(0, 24);
@@ -472,6 +478,7 @@ async function loadGrades() {
     writeStorage(GRADES_CACHE_KEY, state.grades);
   } catch {
     state.gradesFailed = !state.grades;
+    if (!state.grades) state.gradesLoadedFor = '';
   }
   if (state.tab === 'grades') render();
 }
@@ -526,6 +533,7 @@ async function loadIdentity() {
   const current = JSON.stringify({ sg: subgroup, g: gradesKey });
   if (fromBot) {
     writeStorage(IDENTITY_KEY, current);
+    if (history.replaceState) history.replaceState(null, '', location.pathname + location.hash);
     if (cloud()) await cloudCall('setItem', IDENTITY_KEY, current).catch(() => {});
     return;
   }
