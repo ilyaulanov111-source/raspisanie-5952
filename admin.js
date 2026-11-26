@@ -21,7 +21,23 @@ const STATUS_TITLES = {
   blocked: 'Заблокированные',
 };
 
-const panelKey = new URLSearchParams(location.search).get('k');
+const PANEL_SESSION_KEY = 'tg_panel_key_v1';
+const urlPanelKey = new URLSearchParams(location.search).get('k');
+if (urlPanelKey) {
+  try {
+    sessionStorage.setItem(PANEL_SESSION_KEY, urlPanelKey);
+  } catch {
+    // Без sessionStorage останется ключ из адреса
+  }
+  if (history.replaceState) history.replaceState(null, '', location.pathname + location.hash);
+}
+const panelKey = urlPanelKey || (() => {
+  try {
+    return sessionStorage.getItem(PANEL_SESSION_KEY);
+  } catch {
+    return null;
+  }
+})();
 
 const state = {
   tab: 'pulse',
@@ -309,6 +325,7 @@ function renderSafety() {
       <h3>Надёжность</h3>
       <p class="muted">Резервная копия базы: ${backup ? esc(dateLabel(backup)) : 'ещё не делалась'}</p>
       ${watchdog ? `<p class="danger-text">Сторож не выложен: ${esc(watchdog)}</p>` : '<p class="muted">Сторож телефона выложен на GitHub</p>'}
+      <div class="person-actions"><button class="mini" data-action="panel-rotate">🔑 Сменить ключ панели</button></div>
     </section>`;
 }
 
@@ -739,6 +756,9 @@ const actions = {
   },
   'grades-unhide'({ student }) {
     send({ a: 'grades_hide', student, hidden: false });
+  },
+  'panel-rotate'() {
+    confirmThen('Сменить ключ панели? Старая кнопка 🛠 Админка перестанет работать.', () => send({ a: 'panel_rotate' }));
   },
   'poll-new'() {
     openSheet({ type: 'poll', question: '', options: ['', ''] });
