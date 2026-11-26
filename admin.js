@@ -858,6 +858,7 @@ function connectTelegram() {
   const webApp = window.Telegram?.WebApp;
   if (tg || !webApp || webApp.platform === 'unknown') return;
   tg = webApp;
+  bindTheme(tg);
   tg.ready();
   tg.expand();
   if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
