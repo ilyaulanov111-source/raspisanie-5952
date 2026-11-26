@@ -37,10 +37,15 @@ const VISITS = {
 const state = {
   data: null,
   tab: 'schedule',
+  renderedTab: 'schedule',
   selected: null,
+  viewSubgroup: undefined,
   homework: [],
   sharedDone: new Set(),
+  hwFilter: 'all',
+  doneOpen: false,
   draft: null,
+  draftBaseline: '',
   loadFailed: false,
   grades: null,
   gradesFailed: false,
@@ -48,8 +53,13 @@ const state = {
   gradeSubject: 0,
 };
 
+function activeSubgroup() {
+  return state.viewSubgroup === undefined ? subgroup : state.viewSubgroup;
+}
+
 function visible(day) {
-  return day.entries.filter((entry) => !subgroup || !entry.subgroup || entry.subgroup === subgroup);
+  const sg = activeSubgroup();
+  return day.entries.filter((entry) => !sg || !entry.subgroup || entry.subgroup === sg);
 }
 
 function attending(day) {
@@ -85,6 +95,11 @@ function heroState() {
   const now = mskNow();
   const today = findDay(now.date);
   const entries = (today ? attending(today) : []).filter((entry) => entry.start);
+  const remaining = entries.filter((entry) => toMinutes(entry.end || entry.start) > now.minutes);
+  const lastEntry = remaining[remaining.length - 1];
+  const dayEnd = remaining.length && lastEntry?.end
+    ? `осталось ${remaining.length} ${plural(remaining.length, 'пара', 'пары', 'пар')} · до ${lastEntry.end}`
+    : '';
   const place = (entry) => [roomLabel(entry.room), entry.teacher].filter(Boolean).join(' · ');
   const pairName = (entry) => (entry.pair ? `${entry.pair} пара` : 'Занятие');
 
@@ -98,6 +113,7 @@ function heroState() {
       meta: place(current),
       left: `До конца ${duration(end - now.minutes)}`,
       until: current.end,
+      dayEnd,
       progress: Math.round(((now.minutes - start) / (end - start)) * 100),
       danger: current.danger,
     };
@@ -112,6 +128,7 @@ function heroState() {
       meta: place(upcoming),
       left: `Через ${duration(toMinutes(upcoming.start) - now.minutes)}`,
       until: upcoming.start,
+      dayEnd,
       danger: upcoming.danger,
     };
   }
@@ -136,12 +153,13 @@ function renderHero() {
   const timing = hero.left
     ? `<div class="hero-left"><span>${esc(hero.left)}</span><span>${esc(hero.until)}</span></div>`
     : '';
+  const summary = hero.dayEnd ? `<p class="hero-summary">${esc(hero.dayEnd)}</p>` : '';
   const bar = hero.progress === undefined ? '' : `<div class="hero-bar"><i style="width:${hero.progress}%"></i></div>`;
   return `
     <p class="hero-eyebrow">${esc(hero.eyebrow)}${warning}</p>
     <h2 class="hero-title">${esc(hero.title)}</h2>
     ${hero.meta ? `<p class="hero-meta">${esc(hero.meta)}</p>` : ''}
-    ${timing}${bar}`;
+    ${summary}${timing}${bar}`;
 }
 
 function freshnessNote() {
@@ -160,20 +178,29 @@ function renderHead() {
   const now = mskNow();
   const today = findDay(now.date);
   const note = freshnessNote();
+  const viewSg = activeSubgroup();
+  const isPreview = state.viewSubgroup !== undefined && viewSg !== subgroup;
+  const sgLabel = viewSg ? `п/г ${viewSg}` : 'обе п/г';
+  const showReturn = state.selected && state.selected !== defaultDate();
   const chips = [
     today?.week ? `<span class="chip">${WEEK_NAMES[today.week]}</span>` : '',
-    subgroup ? `<span class="chip">п/г ${subgroup}</span>` : '',
+    `<button class="chip chip-button ${isPreview ? 'chip-preview' : ''}" data-action="cycle-subgroup" title="Переключить показ подгруппы">${isPreview ? '👀 ' : ''}${sgLabel}</button>`,
     today?.short ? '<span class="chip chip-short">✂️ сокращённый день</span>' : '',
+    state.data?.pair_times ? '<button class="chip chip-button" data-action="bells">🕒 Звонки</button>' : '',
+    showReturn ? '<button class="chip chip-button chip-return" data-action="go-today">↩ К сегодня</button>' : '',
     '<button class="chip chip-button" data-action="settings">⚙️ Настройки</button>',
   ].join('');
   const warning = note.stale || !state.data.portal_ok || state.loadFailed
     ? `<p class="banner">${state.loadFailed ? 'Нет связи, показываю сохранённые данные.' : 'Портал давно не отвечал, свежие замены могут не отображаться.'}</p>`
     : '';
+  const previewNotice = isPreview
+    ? `<p class="banner banner-info">Предпросмотр (${sgLabel}). Уведомления бота по-прежнему для ${subgroup ? `п/г ${subgroup}` : 'обеих подгрупп'} — сменить можно в ⚙️ Настройках.</p>`
+    : '';
   return `
     <header class="head">
       <h1>${esc(fullDate(now.date))}</h1>
       <div class="head-meta">${chips}<span>${esc(note.text)}</span></div>
-      ${warning}
+      ${warning}${previewNotice}
     </header>`;
 }
 
@@ -181,9 +208,12 @@ function renderStrip() {
   const today = mskNow().date;
   const days = state.data.days.filter((day) => dateParts(day.date).weekday !== 0 || day.date === today);
   const parts = [];
+  let prevMonth = null;
   days.forEach((day, index) => {
-    const { day: number, weekday } = dateParts(day.date);
-    if (index && weekday === 1) parts.push('<i class="strip-week"></i>');
+    const { day: number, month, weekday } = dateParts(day.date);
+    if (index && prevMonth !== month) parts.push(`<span class="strip-month">${esc(MONTHS_SHORT[month])}</span>`);
+    else if (index && weekday === 1) parts.push('<i class="strip-week"></i>');
+    prevMonth = month;
     const classes = ['strip-day', day.date === state.selected ? 'is-active' : '', day.date === today ? 'is-today' : ''].join(' ');
     const changed = visible(day).some((entry) => entry.status !== 'normal');
     const hazard = attending(day).some((entry) => entry.danger) ? '<i class="hazard">!</i>' : '';
@@ -196,8 +226,9 @@ function renderStrip() {
 }
 
 function allHomework() {
+  const sg = activeSubgroup();
   const shared = (state.data?.homework ?? [])
-    .filter((item) => !subgroup || !item.subgroup || item.subgroup === subgroup)
+    .filter((item) => !sg || !item.subgroup || item.subgroup === sg)
     .map((item) => ({
     ...item,
     id: `s${item.id}`,
@@ -232,24 +263,27 @@ function manualTag(entry) {
   return entry.manual ? '<span class="tag tag-info">от создателя</span>' : '';
 }
 
-function renderLesson(day, entry, isNow) {
+function renderLesson(day, entry, isNow, isPast) {
   const status = STATUS[entry.status];
   const pairLabel = entry.pair ? `${entry.pair} пара` : 'Вне сетки';
-  const sub = entry.subgroup && !subgroup ? ` · п/г ${entry.subgroup}` : '';
+  const sub = entry.subgroup && !activeSubgroup() ? ` · п/г ${entry.subgroup}` : '';
   const tag = status ? `<span class="tag tag-${status.tone}">${status.label}</span>` : '';
   const details = [entry.teacher, roomLabel(entry.room)].filter(Boolean).join(' · ');
   const note = entry.note ? `<p>${esc(entry.note)}</p>` : '';
   const was = entry.was ? `<p>Вместо: ${esc(entry.was)}</p>` : '';
   const tasks = homeworkFor(day.date, entry.subject)
-    .map((item) => {
-      const open = item.shared ? 'data-action="tab" data-tab="homework"' : `data-action="edit-hw" data-id="${esc(item.id)}"`;
-      return `<button class="hw-pill" ${open}>ДЗ: ${esc(item.text)}</button>`;
-    })
+    .map((item) => `<button class="hw-pill" data-action="view-hw" data-id="${esc(item.id)}">ДЗ: ${esc(item.text)}</button>`)
     .join('');
   const addButton = entry.status === 'cancelled'
     ? ''
     : `<button class="hw-add" data-action="add-hw" data-subject="${esc(entry.subject)}" data-after="${day.date}">+ ДЗ</button>`;
-  const classes = ['lesson', entry.status === 'cancelled' ? 'is-cancelled' : '', isNow ? 'is-now' : '', entry.danger ? 'is-danger' : ''].join(' ');
+  const classes = [
+    'lesson',
+    entry.status === 'cancelled' ? 'is-cancelled' : '',
+    isNow ? 'is-now' : '',
+    isPast ? 'is-past' : '',
+    entry.danger ? 'is-danger' : '',
+  ].join(' ');
   return `
     <article class="${classes}">
       <div class="lesson-time"><b>${esc(entry.start)}</b><span>${esc(entry.end)}</span></div>
@@ -284,9 +318,11 @@ function renderDayList() {
     if (previousEnd !== null && start - previousEnd >= WIDE_GAP_MINUTES) {
       blocks.push(`<div class="gap">перерыв ${esc(duration(start - previousEnd))}</div>`);
     }
+    const endMinutes = entry.end ? toMinutes(entry.end) : start + 100;
     const isNow = day.date === now.date && entry.end && entry.status !== 'cancelled'
-      && start <= now.minutes && now.minutes < toMinutes(entry.end);
-    blocks.push(renderLesson(day, entry, isNow));
+      && start <= now.minutes && now.minutes < endMinutes;
+    const isPast = day.date === now.date && Boolean(entry.start) && !isNow && endMinutes <= now.minutes;
+    blocks.push(renderLesson(day, entry, isNow, isPast));
     if (entry.status !== 'cancelled' && entry.end) previousEnd = toMinutes(entry.end);
   }
   return `${heading}<div class="lessons">${blocks.join('')}</div>`;
@@ -337,9 +373,9 @@ function renderSharedHomeworkItem(item) {
       <button class="hw-check" data-action="toggle-hw" data-id="${esc(item.id)}" aria-pressed="${item.done}" aria-label="Отметить выполненным">
         <svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7.5"/></svg>
       </button>
-      <div class="hw-main">
+      <div class="hw-main" role="button" tabindex="0" data-action="view-hw" data-id="${esc(item.id)}">
         <strong>${esc(item.subject)} · ${esc(relativeDay(item.due) ?? shortDate(item.due))}</strong>
-        <span>${esc(item.text)}</span>
+        <span>${linkify(item.text)}</span>
       </div>
       <i class="hw-shared-mark">${item.subgroup ? `п/г ${item.subgroup}` : 'общее'}</i>
     </article>`;
@@ -352,29 +388,57 @@ function renderHomeworkItem(item) {
       <button class="hw-check" data-action="toggle-hw" data-id="${esc(item.id)}" aria-pressed="${item.done}" aria-label="Отметить выполненным">
         <svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7.5"/></svg>
       </button>
-      <button class="hw-main" data-action="edit-hw" data-id="${esc(item.id)}">
+      <div class="hw-main" role="button" tabindex="0" data-action="edit-hw" data-id="${esc(item.id)}">
         <strong>${esc(item.subject)} · ${esc(relativeDay(item.due) ?? shortDate(item.due))}</strong>
-        <span>${esc(item.text)}</span>
-      </button>
-      <button class="hw-remove" data-action="remove-hw" data-id="${esc(item.id)}" aria-label="Удалить">×</button>
+        <span>${linkify(item.text)}</span>
+      </div>
     </article>`;
 }
 
 function renderHomework() {
   const today = mskNow().date;
+  const tomorrow = addDays(today, 1);
   const byDue = (a, b) => a.due.localeCompare(b.due);
   const homework = allHomework();
-  const open = homework.filter((item) => !item.done).sort(byDue);
+  const allOpen = homework.filter((item) => !item.done).sort(byDue);
+  const filter = allOpen.length >= 4 ? state.hwFilter : 'all';
+  const open = allOpen.filter((item) => {
+    if (filter === 'tomorrow') return item.due <= tomorrow;
+    if (filter === 'shared') return Boolean(item.shared);
+    return true;
+  });
   const late = open.filter((item) => item.due < today);
   const coming = open.filter((item) => item.due >= today);
   const done = homework.filter((item) => item.done).sort(byDue).reverse();
+  const hasPersonalDone = done.some((item) => !item.shared);
+
+  const filterChip = (key, label) => `<button class="chip chip-button ${filter === key ? 'chip-return' : ''}" data-action="hw-filter" data-filter="${key}">${label}</button>`;
+  const filters = allOpen.length >= 4
+    ? `<div class="hw-filters">${filterChip('all', `Все (${allOpen.length})`)}${filterChip('tomorrow', 'Срочные')}${filterChip('shared', 'Общие')}</div>`
+    : '';
 
   const group = (title, items, extra = '') => items.length
     ? `<h2 class="hw-group ${extra}">${title}</h2>${items.map(renderHomeworkItem).join('')}`
     : '';
+  const doneBlock = done.length
+    ? `
+      <h2 class="hw-group">
+        <button class="hw-spoiler" data-action="toggle-done" aria-expanded="${state.doneOpen}">
+          <span>Сделано (${done.length})</span>
+          <span>${state.doneOpen ? '▴' : '▾'}</span>
+        </button>
+      </h2>
+      ${state.doneOpen ? `
+        ${hasPersonalDone ? '<div class="hw-done-bar"><button class="chip chip-button" data-action="clear-done">Очистить личные</button></div>' : ''}
+        ${done.map(renderHomeworkItem).join('')}
+      ` : ''}`
+    : '';
   const heading = '<h1 class="section-title" style="margin-top:2px;font-size:25px">Домашка</h1>';
   const empty = homework.length ? '' : '<div class="empty"><strong>Пока пусто</strong>Нажми плюс или «+ ДЗ» у пары: срок подставится сам, по следующей паре предмета.</div>';
-  return `${heading}${empty}${group('Просрочено', late, 'is-late')}${group('Предстоит', coming)}${group('Сделано', done)}
+  const filteredEmpty = homework.length && !open.length && filter !== 'all'
+    ? '<div class="empty"><strong>По этому фильтру пусто</strong></div>'
+    : '';
+  return `${heading}${filters}${empty}${filteredEmpty}${group('Просрочено', late, 'is-late')}${group('Предстоит', coming)}${doneBlock}
     <button class="fab" data-action="add-hw" aria-label="Добавить задание">+</button>`;
 }
 
@@ -498,6 +562,10 @@ function renderBadges() {
 
 function render() {
   const view = document.getElementById('view');
+  const keepScroll = state.renderedTab === state.tab;
+  const prevScroll = keepScroll ? window.scrollY : 0;
+  state.renderedTab = state.tab;
+  view.classList.toggle('has-fab', state.tab === 'homework' && Boolean(state.data));
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.classList.toggle('is-active', tab.dataset.tab === state.tab);
   });
@@ -512,6 +580,7 @@ function render() {
   if (state.tab === 'homework') view.innerHTML = renderHomework();
   if (state.tab === 'grades') view.innerHTML = renderGrades();
   renderBadges();
+  if (keepScroll) window.scrollTo(0, prevScroll);
 }
 
 function revealSelectedDay(behavior = 'auto') {
@@ -608,18 +677,87 @@ async function toggleSharedHomework(id) {
 
 function openSheet(draft) {
   state.draft = draft;
+  state.draftBaseline = draft.type ? '' : JSON.stringify({ subject: draft.subject, text: draft.text, due: draft.due });
   renderSheet();
   tg?.BackButton?.show();
 }
 
 function closeSheet() {
   state.draft = null;
+  state.draftBaseline = '';
   document.getElementById('sheet-root').innerHTML = '';
   tg?.BackButton?.hide();
 }
 
+function closeSheetSafely() {
+  if (!state.draft || state.draft.type) {
+    closeSheet();
+    return;
+  }
+  keepDraftText();
+  const current = JSON.stringify({ subject: state.draft.subject, text: state.draft.text, due: state.draft.due });
+  if (state.draft.text.trim() && current !== state.draftBaseline) {
+    confirmThen('Закрыть без сохранения изменений?', closeSheet);
+    return;
+  }
+  closeSheet();
+}
+
+function renderBellsSheet() {
+  const times = state.data?.pair_times;
+  if (!times) return '';
+  const today = findDay(mskNow().date);
+  const weekday = dateParts(mskNow().date).weekday;
+  const activeMode = today?.short ? 'short' : weekday === 6 ? 'saturday' : 'regular';
+  const block = (key, title) => {
+    const rows = (times[key] ?? [])
+      .map((row) => `<div class="bell-row"><span>${row.pair} пара</span><b>${esc(row.start)}–${esc(row.end)}</b></div>`)
+      .join('');
+    return `
+      <span class="field-label">${esc(title)}${activeMode === key ? ' · сегодня' : ''}</span>
+      <section class="grade-card">${rows}</section>`;
+  };
+  return `
+    <div class="sheet-back" data-action="close-sheet"></div>
+    <section class="sheet" role="dialog" aria-label="Расписание звонков">
+      <div class="sheet-grip"></div>
+      <h2>Расписание звонков</h2>
+      ${block('regular', 'Будни')}
+      ${block('saturday', 'Суббота (по 1 часу)')}
+      ${block('short', 'Сокращённый день (по 45 минут)')}
+    </section>`;
+}
+
+function renderViewHomeworkSheet(item) {
+  if (!item) return '';
+  const meta = `${relativeDay(item.due) ?? shortDate(item.due)} · ${item.shared ? (item.subgroup ? `общее · п/г ${item.subgroup}` : 'общее') : 'личное'}`;
+  return `
+    <div class="sheet-back" data-action="close-sheet"></div>
+    <section class="sheet" role="dialog" aria-label="Домашнее задание">
+      <div class="sheet-grip"></div>
+      <h2>${esc(item.subject)}</h2>
+      <span class="field-label">${esc(meta)}</span>
+      <div class="hw-view-text">${linkify(item.text)}</div>
+      <div class="sheet-actions">
+        <button class="primary" data-action="toggle-hw-sheet" data-id="${esc(item.id)}">${item.done ? '↩ Вернуть в работу' : '✓ Сделано'}</button>
+        ${item.shared ? '' : `<button class="secondary-btn" data-action="edit-hw" data-id="${esc(item.id)}">✏️ Редактировать</button>`}
+        <button class="secondary-btn" data-action="goto-homework">Все задания →</button>
+      </div>
+    </section>`;
+}
+
 function renderSheet() {
   const draft = state.draft;
+  if (!draft) return;
+  if (draft.type === 'bells') {
+    document.getElementById('sheet-root').innerHTML = renderBellsSheet();
+    return;
+  }
+  if (draft.type === 'view-hw') {
+    const item = allHomework().find((other) => other.id === draft.id);
+    document.getElementById('sheet-root').innerHTML = renderViewHomeworkSheet(item);
+    return;
+  }
   const subjects = state.data.subjects
     .map((subject) => `<button class="choice ${subject === draft.subject ? 'is-active' : ''}" data-action="draft-subject" data-subject="${esc(subject)}">${esc(subject)}</button>`)
     .join('');
@@ -639,7 +777,10 @@ function renderSheet() {
       <span class="field-label">Срок</span>
       ${dueChoices ? `<div class="choices" style="margin-bottom:8px">${dueChoices}</div>` : ''}
       <input class="input" id="hw-due" type="date" value="${esc(draft.due)}" aria-label="Срок сдачи">
-      <button class="primary" data-action="save-hw">${draft.id ? 'Сохранить' : 'Добавить'}</button>
+      <div class="sheet-actions">
+        <button class="primary" data-action="save-hw">${draft.id ? 'Сохранить' : 'Добавить'}</button>
+        ${draft.id ? `<button class="danger-btn" data-action="delete-hw" data-id="${esc(draft.id)}">🗑 Удалить задание</button>` : ''}
+      </div>
     </section>`;
   document.querySelector('.choices-scroll .is-active')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
@@ -669,6 +810,59 @@ const actions = {
     selectDay(date);
     haptic();
   },
+  'cycle-subgroup'() {
+    const order = [1, 2, null];
+    const current = activeSubgroup();
+    state.viewSubgroup = order[(order.indexOf(current) + 1) % order.length];
+    render();
+    revealSelectedDay();
+    haptic();
+  },
+  'go-today'() {
+    const target = defaultDate();
+    state.selected = target;
+    render();
+    revealSelectedDay('smooth');
+    haptic();
+  },
+  bells() {
+    openSheet({ type: 'bells' });
+    haptic();
+  },
+  'open-link'({ url }) {
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    if (tg?.openLink) tg.openLink(url);
+    else window.open(url, '_blank', 'noopener');
+  },
+  'view-hw'({ id }) {
+    openSheet({ type: 'view-hw', id });
+    haptic();
+  },
+  'goto-homework'() {
+    state.tab = 'homework';
+    closeSheet();
+    render();
+    window.scrollTo(0, 0);
+  },
+  'hw-filter'({ filter }) {
+    state.hwFilter = filter;
+    render();
+    haptic();
+  },
+  'toggle-done'() {
+    state.doneOpen = !state.doneOpen;
+    render();
+    haptic();
+  },
+  'clear-done'() {
+    const targets = state.homework.filter((item) => item.done);
+    if (!targets.length) return;
+    confirmThen(`Удалить выполненные личные задания (${targets.length})?`, async () => {
+      for (const item of targets) await removeHomework(item.id);
+      render();
+      toast('Выполненные удалены');
+    });
+  },
   'add-hw'({ subject = '', after }) {
     const from = after ?? mskNow().date;
     const due = subject ? nextLessonDates(subject, from, 1)[0] ?? '' : '';
@@ -691,7 +885,7 @@ const actions = {
     renderSheet();
   },
   'close-sheet'() {
-    closeSheet();
+    closeSheetSafely();
   },
   settings() {
     // Настройки живут в боте: кнопка открывает чат с ним, бот присылает переключатели
@@ -731,21 +925,35 @@ const actions = {
     }
     render();
   },
-  async 'remove-hw'({ id }) {
-    await removeHomework(id);
-    render();
+  async 'toggle-hw-sheet'({ id }) {
+    await actions['toggle-hw']({ id });
+    closeSheet();
+  },
+  'delete-hw'({ id }) {
+    confirmThen('Удалить это задание?', async () => {
+      closeSheet();
+      await removeHomework(id);
+      render();
+      toast('Удалено');
+    });
   },
 };
 
 function selectDay(date) {
   if (date === state.selected || !findDay(date)) return;
+  const wasDefault = state.selected === defaultDate();
   state.selected = date;
-  document.querySelectorAll('.strip-day').forEach((button) => {
-    const active = button.dataset.date === date;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-pressed', active);
-  });
-  document.getElementById('day-list').innerHTML = renderDayList();
+  const isDefault = state.selected === defaultDate();
+  if (wasDefault !== isDefault) {
+    render();
+  } else {
+    document.querySelectorAll('.strip-day').forEach((button) => {
+      const active = button.dataset.date === date;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active);
+    });
+    document.getElementById('day-list').innerHTML = renderDayList();
+  }
   revealSelectedDay('smooth');
 }
 
@@ -781,10 +989,11 @@ function connectTelegram() {
   const webApp = window.Telegram?.WebApp;
   if (tg || !webApp?.initData) return;
   tg = webApp;
+  bindTheme(tg);
   tg.ready();
   tg.expand();
   if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
-  tg.BackButton?.onClick(closeSheet);
+  tg.BackButton?.onClick(closeSheetSafely);
   loadHomework().then(render);
   // До загрузки Telegram подгруппа и ключ брались из копии в браузере; CloudStorage точнее
   loadIdentity().finally(loadGrades);
