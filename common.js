@@ -5,12 +5,29 @@
 const WEEKDAYS = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const WEEKDAYS_SHORT = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const SUBJECT_COLORS = ['#2f7fe0', '#2ea66f', '#d98a00', '#e5484d', '#8e5cf6', '#12a5a5', '#d6409f', '#6b7fd7'];
 
 let tg = null;
 
 function esc(text) {
   return String(text ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function linkify(text) {
+  return esc(text).replace(/https?:\/\/[^\s<>&"]+/g, (raw) => {
+    let clean = raw.replace(/[.,;:!?]+$/, '');
+    while (clean.endsWith(')') && clean.split('(').length < clean.split(')').length) {
+      clean = clean.slice(0, -1).replace(/[.,;:!?]+$/, '');
+    }
+    const tail = raw.slice(clean.length);
+    return `<button type="button" class="inline-link" data-action="open-link" data-url="${clean}">${clean}</button>${tail}`;
+  });
+}
+
+function confirmThen(text, action) {
+  if (tg?.showConfirm && tg.isVersionAtLeast?.('6.2')) tg.showConfirm(text, (ok) => ok && action());
+  else if (window.confirm(text)) action();
 }
 
 function readStorage(key) {
@@ -169,15 +186,38 @@ async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-// Цвета темы из адреса применяем сразу: скрипт Telegram может загрузиться позже страницы
+// Цвета и светлая/тёмная тема: синхронизируем с Telegram, но до загрузки скрипта берём параметры из URL
 function applyThemeFromUrl() {
   const theme = new URLSearchParams(location.hash.slice(1)).get('tgWebAppThemeParams');
   if (!theme) return;
   try {
-    for (const [name, value] of Object.entries(JSON.parse(theme))) {
+    const parsed = JSON.parse(theme);
+    for (const [name, value] of Object.entries(parsed)) {
       document.documentElement.style.setProperty(`--tg-theme-${name.replaceAll('_', '-')}`, value);
+    }
+    if (parsed.bg_color) {
+      const hex = parsed.bg_color.replace('#', '');
+      if (hex.length === 6) {
+        const luma = 0.299 * parseInt(hex.slice(0, 2), 16) + 0.587 * parseInt(hex.slice(2, 4), 16) + 0.114 * parseInt(hex.slice(4, 6), 16);
+        document.documentElement.dataset.theme = luma < 128 ? 'dark' : 'light';
+      }
     }
   } catch {
     // Останется оформление по умолчанию
   }
+}
+
+function applyTelegramTheme(webApp) {
+  if (!webApp) return;
+  if (webApp.colorScheme) document.documentElement.dataset.theme = webApp.colorScheme;
+  if (webApp.themeParams) {
+    for (const [name, value] of Object.entries(webApp.themeParams)) {
+      document.documentElement.style.setProperty(`--tg-theme-${name.replaceAll('_', '-')}`, value);
+    }
+  }
+}
+
+function bindTheme(webApp) {
+  applyTelegramTheme(webApp);
+  webApp?.onEvent?.('themeChanged', () => applyTelegramTheme(webApp));
 }
