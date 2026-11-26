@@ -118,16 +118,31 @@ function repositoryOfSite() {
   return owner && repo ? `${owner}/${repo}` : null;
 }
 
+const GH_COOLDOWN_KEY = 'tg_gh_cooldown_until';
+
 async function fetchFresh(name) {
   const stamp = Date.now();
   const repository = repositoryOfSite();
-  if (repository) {
+  let cooldown = 0;
+  try {
+    cooldown = Number(localStorage.getItem(GH_COOLDOWN_KEY) || 0);
+  } catch {
+    cooldown = 0;
+  }
+  if (repository && stamp > cooldown) {
     try {
       const response = await fetch(`https://api.github.com/repos/${repository}/contents/${name}?ref=main&t=${stamp}`, {
         headers: { Accept: 'application/vnd.github.raw' },
         cache: 'no-store',
       });
       if (response.ok) return response;
+      if (response.status === 403 || response.status === 429) {
+        try {
+          localStorage.setItem(GH_COOLDOWN_KEY, String(stamp + 15 * 60000));
+        } catch {
+          // Лимит запомнится только до перезагрузки
+        }
+      }
     } catch {
       // Ниже попробуем Pages
     }
