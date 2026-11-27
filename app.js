@@ -24,6 +24,9 @@ const STATUS = {
 const IDENTITY_KEY = 'identity';
 const urlParams = new URLSearchParams(location.search);
 const fromBot = urlParams.has('g');
+const initTab = ['schedule', 'changes', 'homework', 'grades'].includes(urlParams.get('tab')) ? urlParams.get('tab') : null;
+let initDay = /^\d{4}-\d{2}-\d{2}$/.test(urlParams.get('day') ?? '') ? urlParams.get('day') : '';
+let initSubj = urlParams.get('subj') || '';
 let subgroup = Number(urlParams.get('sg')) || null;
 let gradesKey = (urlParams.get('g') ?? '').toLowerCase();
 const GRADES_CACHE_KEY = 'tt_grades_v2';
@@ -36,8 +39,8 @@ const VISITS = {
 
 const state = {
   data: null,
-  tab: 'schedule',
-  renderedTab: 'schedule',
+  tab: initTab ?? 'schedule',
+  renderedTab: initTab ?? 'schedule',
   selected: null,
   viewSubgroup: undefined,
   homework: [],
@@ -51,6 +54,7 @@ const state = {
   gradesFailed: false,
   gradesLoadedFor: '',
   gradeSubject: 0,
+  gradeFilter: 'all',
 };
 
 function activeSubgroup() {
@@ -174,6 +178,27 @@ function freshnessNote() {
   return { text: `проверено ${age} назад`, stale };
 }
 
+function sessionEventsFor(dateIso) {
+  return (state.data?.session?.events ?? []).filter((item) => item.date === dateIso);
+}
+
+function sessionChipLabel() {
+  const session = state.data?.session;
+  if (!session) return '';
+  const today = mskNow().date;
+  const events = (session.events ?? []).filter((item) => item.date >= today);
+  const start = session.start || events[0]?.date || '';
+  if (!start) return '';
+  if (start > today) {
+    const a = Date.UTC(...start.split('-').map((n, i) => (i === 1 ? n - 1 : Number(n))));
+    const b = Date.UTC(...today.split('-').map((n, i) => (i === 1 ? n - 1 : Number(n))));
+    const days = Math.round((a - b) / 86400000);
+    return `🎓 До сессии ${days} ${plural(days, 'день', 'дня', 'дней')}`;
+  }
+  if (start === today || events.some((item) => item.date === today)) return '🎓 Сессия сегодня';
+  return events.length ? '🎓 Сессия' : '';
+}
+
 function renderHead() {
   const now = mskNow();
   const today = findDay(now.date);
@@ -182,10 +207,12 @@ function renderHead() {
   const isPreview = state.viewSubgroup !== undefined && viewSg !== subgroup;
   const sgLabel = viewSg ? `п/г ${viewSg}` : 'обе п/г';
   const showReturn = state.selected && state.selected !== defaultDate();
+  const sessionLabel = sessionChipLabel();
   const chips = [
     today?.week ? `<span class="chip">${WEEK_NAMES[today.week]}</span>` : '',
     `<button class="chip chip-button ${isPreview ? 'chip-preview' : ''}" data-action="cycle-subgroup" title="Переключить показ подгруппы">${isPreview ? '👀 ' : ''}${sgLabel}</button>`,
     today?.short ? '<span class="chip chip-short">✂️ сокращённый день</span>' : '',
+    sessionLabel ? `<button class="chip chip-button chip-session" data-action="session">${esc(sessionLabel)}</button>` : '',
     state.data?.pair_times ? '<button class="chip chip-button" data-action="bells">🕒 Звонки</button>' : '',
     showReturn ? '<button class="chip chip-button chip-return" data-action="go-today">↩ К сегодня</button>' : '',
     '<button class="chip chip-button" data-action="settings">⚙️ Настройки</button>',
@@ -216,10 +243,11 @@ function renderStrip() {
     prevMonth = month;
     const classes = ['strip-day', day.date === state.selected ? 'is-active' : '', day.date === today ? 'is-today' : ''].join(' ');
     const changed = visible(day).some((entry) => entry.status !== 'normal');
+    const hasSession = sessionEventsFor(day.date).length > 0;
     const hazard = attending(day).some((entry) => entry.danger) ? '<i class="hazard">!</i>' : '';
     parts.push(`
       <button class="${classes}" data-action="day" data-date="${day.date}" aria-pressed="${day.date === state.selected}">
-        <small>${WEEKDAYS_SHORT[weekday]}</small><b>${number}</b>${changed ? '<i class="dot"></i>' : ''}${hazard}
+        <small>${WEEKDAYS_SHORT[weekday]}</small><b>${number}</b>${hasSession ? '<i class="dot dot-session"></i>' : changed ? '<i class="dot"></i>' : ''}${hazard}
       </button>`);
   });
   return `<div class="strip" id="strip">${parts.join('')}</div>`;
@@ -305,13 +333,23 @@ function renderDayList() {
   const small = `${number} ${MONTHS[month]}${day.week ? ` · ${WEEK_NAMES[day.week].split(' ')[0]}` : ''}${day.short ? ' · сокращённый' : ''}`;
   const heading = `<h2 class="section-title"><span>${esc(title)}</span><small>${esc(small)}</small></h2>`;
 
+  const sessionCards = sessionEventsFor(day.date).map((item) => `
+    <article class="lesson is-session">
+      <div class="lesson-time"><b>${esc(item.time || '—')}</b><span>${esc(item.kind || 'Сессия')}</span></div>
+      <div class="lesson-body" style="--subject:var(--accent)">
+        <div class="lesson-top"><span class="tag tag-info">🎓 ${esc(item.kind || 'Сессия')}</span></div>
+        <h3>${esc(item.subject)}</h3>
+        ${item.room ? `<p>${esc(roomLabel(item.room))}</p>` : ''}
+      </div>
+    </article>`);
+
   const entries = visible(day);
-  if (!entries.length) {
+  if (!entries.length && !sessionCards.length) {
     const reason = day.holiday ? `<strong>${esc(day.holiday)}</strong>Пар нет` : '<strong>Пар нет</strong>Можно выдохнуть';
     return `${heading}<div class="empty">${reason}</div>`;
   }
   const now = mskNow();
-  const blocks = [];
+  const blocks = [...sessionCards];
   let previousEnd = null;
   for (const entry of entries) {
     const start = toMinutes(entry.start);
@@ -466,19 +504,37 @@ function renderGrades() {
   const subjects = state.grades.subjects ?? [state.grades];
   const index = Math.min(state.gradeSubject, subjects.length - 1);
   const switcher = subjects.length > 1
-    ? `<div class="grade-switch">${subjects.map((subject, i) => `
-        <button class="${i === index ? 'is-active' : ''}" data-action="grade-subject" data-index="${i}" aria-pressed="${i === index}">${esc(subject.short ?? subject.title)}</button>`).join('')}
+    ? `<div class="grade-tiles">${subjects.map((subject, i) => {
+        const debts = (subject.missing_works ?? []).length;
+        const badge = debts ? `<span class="grade-tile-debt">−${debts}</span>` : '';
+        const score = subject.final || subject.average || '—';
+        return `
+          <button class="grade-tile ${i === index ? 'is-active' : ''}" data-action="grade-subject" data-index="${i}" aria-pressed="${i === index}">
+            <div class="grade-tile-top"><strong>${esc(subject.short ?? subject.title)}</strong>${badge}</div>
+            <span>${subject.final ? 'итог ' : 'ср. '}${esc(score)}</span>
+          </button>`;
+      }).join('')}
       </div>`
     : '';
   return heading + switcher + renderSubjectGrades(subjects[index]);
 }
 
+function isMissedMark(mark) {
+  return /^(?:-|н(?:\/.*)?)$/i.test(String(mark || '').trim());
+}
+
+function isAbsenceOrExcuse(mark) {
+  return /^(?:-|н(?:\/.*)?|б|у)$/i.test(String(mark || '').trim());
+}
+
 function lessonMark(grades, lesson) {
+  const mark = String(lesson.mark || '').trim();
+  const lower = mark.toLowerCase();
+  if (lower === 'н') return '<span class="tag tag-danger">не был</span>';
+  if (lower === 'б') return '<span class="tag tag-info">болел</span>';
+  if (lower === 'у') return '<span class="tag tag-info">уважительная</span>';
   if (grades.graded) {
-    const mark = String(lesson.mark || '').trim();
     if (!mark) return '<span class="tag tag-muted">нет оценки</span>';
-    if (mark.toLowerCase() === 'н') return '<span class="tag tag-danger">не был</span>';
-    if (mark.toLowerCase() === 'б') return '<span class="tag tag-info">болел</span>';
     return `<b class="grade-chip tone-${gradeTone(mark)}">${esc(mark)}</b>`;
   }
   const visit = VISITS[lesson.mark];
@@ -492,7 +548,20 @@ function renderSubjectGrades(grades) {
       <span>${esc(work.title)}</span>
       <b class="grade-chip tone-${gradeTone(work.mark)}">${esc(work.mark)}</b>
     </div>`).join('');
-  const lessons = grades.lessons.map((lesson) => {
+  const missing = (grades.missing_works ?? []).map((title) => `
+    <div class="grade-row">
+      <span>${esc(title)}</span>
+      <span class="tag tag-danger">не сдано</span>
+    </div>`).join('');
+  const missedCount = grades.lessons.filter((lesson) => isMissedMark(lesson.mark)).length;
+  const absenceCount = grades.lessons.filter((lesson) => isAbsenceOrExcuse(lesson.mark)).length;
+  const markedCount = grades.lessons.filter((lesson) => lesson.mark && !isAbsenceOrExcuse(lesson.mark)).length;
+  const filteredLessons = grades.lessons.filter((lesson) => {
+    if (state.gradeFilter === 'absent') return isAbsenceOrExcuse(lesson.mark);
+    if (state.gradeFilter === 'marked') return Boolean(lesson.mark) && !isAbsenceOrExcuse(lesson.mark);
+    return true;
+  });
+  const lessons = filteredLessons.map((lesson) => {
     const when = lesson.date ? shortDate(lesson.date) : lesson.label;
     return `
       <div class="grade-lesson">
@@ -500,14 +569,17 @@ function renderSubjectGrades(grades) {
         ${lessonMark(grades, lesson)}
       </div>`;
   }).join('');
+  const gradeFilterChip = (key, label) => `<button class="chip chip-button ${state.gradeFilter === key ? 'chip-return' : ''}" data-action="grade-filter" data-filter="${key}">${label}</button>`;
+  const journalFilters = grades.lessons.length
+    ? `<div class="hw-filters">${gradeFilterChip('all', `Все (${grades.lessons.length})`)}${absenceCount ? gradeFilterChip('absent', `Пропуски (${absenceCount})`) : ''}${markedCount ? gradeFilterChip('marked', grades.graded ? `С оценкой (${markedCount})` : `Был (${markedCount})`) : ''}</div>`
+    : '';
   let second;
   if (grades.graded) {
-    const marked = grades.lessons.filter((lesson) => lesson.mark && !/^[нб]$/i.test(String(lesson.mark).trim())).length;
-    second = `<p><b>${marked}</b> ${plural(marked, 'оценка', 'оценки', 'оценок')} за занятия</p>`;
+    const marked = grades.lessons.filter((lesson) => lesson.mark && !/^[нбу]$/i.test(String(lesson.mark).trim())).length;
+    second = `<p><b>${marked}</b> ${plural(marked, 'оценка', 'оценки', 'оценок')}${missedCount ? ` · <span class="grade-missed">${missedCount} ${plural(missedCount, 'пропуск', 'пропуска', 'пропусков')}</span>` : ''}</p>`;
   } else {
-    const missed = grades.lessons.filter((lesson) => lesson.mark === '-').length;
     second = `
-      <p><b>${esc(grades.attendance || '—')}%</b> посещаемость${missed ? ` · ${missed} ${plural(missed, 'пропуск', 'пропуска', 'пропусков')}` : ''}</p>
+      <p><b>${esc(grades.attendance || '—')}%</b> посещаемость${missedCount ? ` · ${missedCount} ${plural(missedCount, 'пропуск', 'пропуска', 'пропусков')}` : ''}</p>
       <div class="grade-bar"><i style="width:${Number.isNaN(attendance) ? 0 : Math.min(100, attendance)}%"></i></div>`;
   }
   const updated = grades.checked_at ? `обновлено ${esc(dateLabelShort(grades.checked_at))}` : '';
@@ -520,8 +592,9 @@ function renderSubjectGrades(grades) {
         ${second}
       </div>
     </section>
+    ${missing ? `<h2 class="hw-group is-late">Не сдано в группе (${grades.missing_works.length})</h2><section class="grade-card">${missing}</section>` : ''}
     ${works ? `<h2 class="hw-group">${esc(grades.works_title ?? 'Практические работы')}</h2><section class="grade-card">${works}</section>` : ''}
-    ${lessons ? `<h2 class="hw-group">Журнал занятий</h2><section class="grade-card">${lessons}</section>` : ''}`;
+    ${grades.lessons.length ? `<h2 class="hw-group">Журнал занятий</h2>${journalFilters}<section class="grade-card">${lessons || '<p class="grade-empty-note">По этому фильтру записей нет</p>'}</section>` : ''}`;
 }
 
 function dateLabelShort(iso) {
@@ -530,16 +603,27 @@ function dateLabelShort(iso) {
   return relative ? `${relative.toLowerCase()} в ${iso.slice(11, 16)}` : shortDate(day);
 }
 
+function applyInitialSubject() {
+  if (!initSubj || !state.grades) return;
+  const subjects = state.grades.subjects ?? [state.grades];
+  const target = initSubj.toLowerCase();
+  const idx = subjects.findIndex((s) => (s.short ?? '').toLowerCase() === target || (s.title ?? '').toLowerCase().includes(target));
+  if (idx >= 0) state.gradeSubject = idx;
+  initSubj = '';
+}
+
 async function loadGrades() {
   if (!/^[0-9a-f]{64}$/.test(gradesKey) || state.gradesLoadedFor === gradesKey) return;
   state.gradesLoadedFor = gradesKey;
   state.grades = readStorage(GRADES_CACHE_KEY);
+  applyInitialSubject();
   try {
     const name = (await sha256Hex(gradesKey)).slice(0, 24);
     const response = await fetchFresh(`g/${name}.bin`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     state.grades = await decrypt(await response.arrayBuffer(), gradesKey);
     writeStorage(GRADES_CACHE_KEY, state.grades);
+    applyInitialSubject();
   } catch {
     state.gradesFailed = !state.grades;
     if (!state.grades) state.gradesLoadedFor = '';
@@ -746,11 +830,34 @@ function renderViewHomeworkSheet(item) {
     </section>`;
 }
 
+function renderSessionSheet() {
+  const session = state.data?.session;
+  if (!session) return '';
+  const today = mskNow().date;
+  const events = (session.events ?? []).filter((item) => item.date >= today);
+  const rows = events.map((item) => `
+    <div class="grade-lesson">
+      <div><strong>${esc(shortDate(item.date))}${item.time ? ` · ${esc(item.time)}` : ''} · ${esc(item.kind || 'Сессия')}</strong><span>${esc(item.subject)}${item.room ? ` · ${esc(roomLabel(item.room))}` : ''}</span></div>
+    </div>`).join('');
+  return `
+    <div class="sheet-back" data-action="close-sheet"></div>
+    <section class="sheet" role="dialog" aria-label="Сессия">
+      <div class="sheet-grip"></div>
+      <h2>🎓 Сессия</h2>
+      ${session.start ? `<span class="field-label">Начало: ${esc(fullDate(session.start))}</span>` : ''}
+      ${rows ? `<section class="grade-card">${rows}</section>` : '<p class="muted">Предметы и время экзаменов появятся здесь, когда их добавит создатель.</p>'}
+    </section>`;
+}
+
 function renderSheet() {
   const draft = state.draft;
   if (!draft) return;
   if (draft.type === 'bells') {
     document.getElementById('sheet-root').innerHTML = renderBellsSheet();
+    return;
+  }
+  if (draft.type === 'session') {
+    document.getElementById('sheet-root').innerHTML = renderSessionSheet();
     return;
   }
   if (draft.type === 'view-hw') {
@@ -803,7 +910,17 @@ const actions = {
   },
   'grade-subject'({ index }) {
     state.gradeSubject = Number(index);
+    state.gradeFilter = 'all';
     render();
+    haptic();
+  },
+  'grade-filter'({ filter }) {
+    state.gradeFilter = filter;
+    render();
+    haptic();
+  },
+  session() {
+    openSheet({ type: 'session' });
     haptic();
   },
   day({ date }) {
@@ -1003,7 +1120,7 @@ async function loadData() {
   const cached = readStorage(DATA_CACHE_KEY);
   if (cached) {
     state.data = cached;
-    state.selected = defaultDate();
+    state.selected = initDay && findDay(initDay) ? initDay : defaultDate();
     render();
     revealSelectedDay();
   }
@@ -1016,7 +1133,12 @@ async function loadData() {
   } catch {
     state.loadFailed = true;
   }
-  if (state.data && !findDay(state.selected ?? '')) state.selected = defaultDate();
+  if (state.data && initDay && findDay(initDay)) {
+    state.selected = initDay;
+    initDay = '';
+  } else if (state.data && !findDay(state.selected ?? '')) {
+    state.selected = defaultDate();
+  }
   render();
   revealSelectedDay();
 }
