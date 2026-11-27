@@ -1158,3 +1158,90 @@ textarea.input {
     transition: none !important;
   }
 }
+
+.chip-session {
+  background: rgba(47, 127, 224, 0.14);
+  color: var(--info);
+}
+
+.strip-day .dot-session {
+  background: var(--info);
+}
+
+.lesson.is-session {
+  box-shadow: inset 0 0 0 1.5px rgba(47, 127, 224, 0.45);
+}
+
+.grade-tiles {
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px 14px;
+  padding: 2px 16px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.grade-tiles::-webkit-scrollbar {
+  display: none;
+}
+
+.grade-tile {
+  flex: 1 0 108px;
+  padding: 10px 12px;
+  border-radius: 15px;
+  background: var(--card);
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.grade-tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.grade-tile strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.grade-tile span {
+  display: block;
+  margin-top: 2px;
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.grade-tile.is-active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.grade-tile.is-active span {
+  color: inherit;
+  opacity: 0.88;
+}
+
+.grade-tile .grade-tile-debt {
+  margin-top: 0;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 1;
+}
+
+.grade-missed {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.grade-empty-note {
+  padding: 14px 0;
+  color: var(--hint);
+  font-size: 13.5px;
+  text-align: center;
+}
