@@ -12,7 +12,10 @@ const KINDS = {
   remote: 'Дистанционно',
   replaced: 'Другая пара',
   room: 'Другая аудитория',
+  added: 'Новая пара',
 };
+const PAIR_NUMBERS = [1, 2, 3, 4, 5, 6];
+const SESSION_KINDS = ['Экзамен', 'Зачёт', 'Консультация'];
 const STATUS_TITLES = {
   pending: 'Заявки',
   approved: 'С доступом',
@@ -46,6 +49,8 @@ const state = {
   draft: null,
   failure: '',
   broadcastText: '',
+  peopleQuery: '',
+  peopleOpen: { pending: true, approved: true, new: false, rejected: false, blocked: false },
   lastAction: null,
 };
 
@@ -315,6 +320,7 @@ function renderHiddenStudents() {
       <select class="input" id="hide-student"><option value="">— выбери —</option>${options}</select>
       <button class="mini" data-action="grades-hide">Скрыть</button>
     </div>
+    ${state.panel.grade_students.length > 1 ? '<div class="person-actions"><button class="mini" data-action="grades-hide-multi">Выбрать несколько…</button></div>' : ''}
     ${hidden ? `<div class="person-actions">${hidden}</div>` : ''}`;
 }
 
@@ -345,10 +351,21 @@ function renderHeading(title) {
     </header>`;
 }
 
+function hasSystemAlert() {
+  const { phone, portal, watchdog_error: watchdog } = state.panel;
+  const lowBat = phone.battery && !phone.battery.charging && phone.battery.percent < 25;
+  const linkDown = phone.link?.checked_at && (!phone.link.telegram || phone.link.internet !== 'full');
+  const vpnOff = phone.network && !phone.network.vpn;
+  return Boolean(portal.failures || portal.format_error || watchdog || lowBat || linkDown || vpnOff);
+}
+
 function renderPulse() {
+  const alertFirst = hasSystemAlert()
+    ? `${renderPhone()}${renderSafety()}${renderDanger()}${renderChecks()}${renderGradesCard()}`
+    : `${renderDanger()}${renderChecks()}${renderGradesCard()}${renderSafety()}${renderPhone()}`;
   return `${renderHeading('Пульт')}${renderStatusCard()}${renderTiles()}
     <button class="primary" data-action="check">🔄 Проверить портал сейчас</button>
-    ${renderDanger()}${renderChecks()}${renderGradesCard()}${renderSafety()}${renderPhone()}${renderActivity()}${renderTopCancelled()}${renderEvents()}`;
+    ${alertFirst}${renderActivity()}${renderTopCancelled()}${renderEvents()}`;
 }
 
 function renderPerson(user) {
@@ -364,8 +381,9 @@ function renderPerson(user) {
     user.active ? null : 'заблокировал бота',
   ].filter(Boolean).join(' · ');
   const decide = (decision, label, tone = '') => `<button class="mini ${tone}" data-action="decide" data-id="${user.id}" data-decision="${decision}" data-name="${esc(user.name)}">${label}</button>`;
+  const setup = `<button class="mini" data-action="approve-setup" data-id="${user.id}">⚙️ Принять и настроить</button>`;
   const buttons = {
-    pending: decide('approve', '✅ Принять', 'mini-accent') + decide('reject', 'Отклонить') + decide('block', '🚫'),
+    pending: decide('approve', '✅ Принять', 'mini-accent') + setup + decide('reject', 'Отклонить') + decide('block', '🚫'),
     approved: decide('revoke', 'Закрыть доступ') + decide('block', '🚫'),
     new: decide('approve', 'Открыть доступ') + decide('block', '🚫'),
     rejected: decide('approve', 'Открыть доступ'),
@@ -380,13 +398,32 @@ function renderPerson(user) {
     </article>`;
 }
 
-function renderPeople() {
+function matchesPerson(user, query) {
+  if (!query) return true;
+  const hay = [user.name, user.label, user.username, user.grades_name].filter(Boolean).join(' ').toLowerCase().replaceAll('ё', 'е');
+  return query.split(/\s+/).every((part) => hay.includes(part));
+}
+
+function renderPeopleList() {
+  const query = state.peopleQuery.trim().toLowerCase().replaceAll('ё', 'е');
   const sections = Object.keys(STATUS_TITLES).map((status) => {
-    const users = usersWith(status);
+    const users = usersWith(status).filter((user) => matchesPerson(user, query));
     if (!users.length) return '';
-    return `<h2 class="hw-group">${STATUS_TITLES[status]} · ${users.length}</h2>${users.map(renderPerson).join('')}`;
-  });
-  return `${renderHeading('Люди')}${sections.join('')}`;
+    const open = query ? true : Boolean(state.peopleOpen[status]);
+    return `
+      <button class="accordion-head" data-action="toggle-people-section" data-status="${status}" aria-expanded="${open}">
+        <span>${STATUS_TITLES[status]} · ${users.length}</span>
+        <span>${open ? '▴' : '▾'}</span>
+      </button>
+      ${open ? users.map(renderPerson).join('') : ''}`;
+  }).join('');
+  return sections || '<div class="empty"><strong>Никого не найдено</strong>Попробуй изменить запрос</div>';
+}
+
+function renderPeople() {
+  return `${renderHeading('Люди')}
+    <input class="input search-input" id="people-search" type="search" value="${esc(state.peopleQuery)}" placeholder="Поиск по имени, нику, подписи…">
+    <div id="people-list">${renderPeopleList()}</div>`;
 }
 
 function renderHomework() {
@@ -405,11 +442,36 @@ function renderHomework() {
     <button class="fab" data-action="hw-new" aria-label="Добавить задание">+</button>`;
 }
 
+function renderSessionCard() {
+  const session = state.panel.session ?? { start: '', events: [] };
+  const rows = (session.events ?? []).map((item) => `
+    <article class="hw-item admin-hw">
+      <div class="hw-main">
+        <strong>${esc(shortDate(item.date))}${item.time ? ` · ${esc(item.time)}` : ''} · ${esc(item.kind || 'Сессия')}</strong>
+        <span>${esc(item.subject)}${item.room ? ` · ${esc(roomLabel(item.room))}` : ''}</span>
+      </div>
+      ${item.manual ? `<button class="hw-remove" data-action="session-delete" data-id="${item.id}" aria-label="Удалить">×</button>` : '<span class="tag tag-muted">в конфиге</span>'}
+    </article>`).join('');
+  return `
+    <section class="card">
+      <h3>🎓 Сессия</h3>
+      <p class="muted">Покажет в шапке счётчик дней до первой сессии, а экзамены и зачёты — прямо в расписании дня.</p>
+      <label class="field-label" for="session-start-input">Дата первой сессии</label>
+      <div class="session-start-row">
+        <input class="input" id="session-start-input" type="date" value="${esc(session.start ?? '')}">
+        <button class="mini mini-accent" data-action="session-start">Сохранить</button>
+        ${session.start ? '<button class="mini" data-action="session-clear">Сброс</button>' : ''}
+      </div>
+      ${rows}
+      <button class="primary primary-soft" data-action="session-new">🎓 + Экзамен или зачёт</button>
+    </section>`;
+}
+
 function renderAir() {
   const rows = state.panel.manual.map((item) => `
     <article class="hw-item admin-hw">
       <div class="hw-main">
-        <strong>${esc(relativeDay(item.date) ?? shortDate(item.date))} · ${item.pair} пара · ${esc(KINDS[item.kind])}</strong>
+        <strong>${esc(relativeDay(item.date) ?? shortDate(item.date))} · ${item.pair} пара · ${esc(KINDS[item.kind] ?? item.kind)}</strong>
         <span>${esc([item.text, item.room].filter(Boolean).join(', ') || 'без пояснения')}</span>
       </div>
       <button class="hw-remove" data-action="manual-delete" data-id="${item.id}" aria-label="Отменить">×</button>
@@ -418,10 +480,14 @@ function renderAir() {
     <section class="card">
       <h3>Объявление всем</h3>
       <textarea class="input" id="broadcast-text" maxlength="1500" placeholder="Например: завтра сбор у 409 в 8:20">${esc(state.broadcastText)}</textarea>
-      <button class="primary" data-action="broadcast">📣 Отправить всем</button>
+      <div class="sheet-actions">
+        <button class="primary" data-action="broadcast">📣 Отправить всем</button>
+        <button class="secondary-btn" data-action="broadcast-preview">👁 Тест себе</button>
+      </div>
     </section>
     ${renderPolls()}
     ${renderShortDays()}
+    ${renderSessionCard()}
     <section class="card">
       <h3>Ручные замены</h3>
       <p class="muted">Узнал раньше портала? Добавь сам: все получат уведомление, а в расписании появится пометка.</p>
@@ -622,27 +688,100 @@ function renderShortSheet(draft) {
     <button class="primary" data-action="short-save">Сократить и уведомить всех</button>`;
 }
 
+function renderApproveSetupSheet(draft) {
+  const students = state.panel.grade_students;
+  const options = students
+    .map((name) => `<option value="${esc(name)}" ${name === draft.student ? 'selected' : ''}>${esc(name)}</option>`)
+    .join('');
+  const grades = students.length
+    ? `<label class="field-label" for="draft-student">Строка в таблице оценок</label>
+       <select class="input" id="draft-student"><option value="">— не связывать —</option>${options}</select>`
+    : '';
+  return `
+    <h2>Принять и настроить</h2>
+    <p class="muted">${esc(draft.name)}. Одним нажатием откроет доступ, подпишет и свяжет с оценками.</p>
+    <label class="field-label" for="draft-label">Подпись</label>
+    <input class="input" id="draft-label" maxlength="60" value="${esc(draft.label)}" placeholder="Имя и фамилия">
+    ${grades}
+    <span class="field-label">Подгруппа</span>
+    <div class="choices">
+      ${choice(!draft.subgroup, 'draft-subgroup', 'data-subgroup="0"', 'Обе')}
+      ${choice(draft.subgroup === 1, 'draft-subgroup', 'data-subgroup="1"', '1 подгруппа')}
+      ${choice(draft.subgroup === 2, 'draft-subgroup', 'data-subgroup="2"', '2 подгруппа')}
+    </div>
+    <button class="primary" data-action="approve-setup-save">✅ Принять и сохранить</button>`;
+}
+
+function renderHideMultiSheet() {
+  const items = state.panel.grade_students
+    .map((name) => `<label class="multi-row"><input type="checkbox" class="hide-multi-box" value="${esc(name)}"><span>${esc(name)}</span></label>`)
+    .join('');
+  return `
+    <h2>Скрыть несколько строк</h2>
+    <p class="muted">Отметь тех, кого не показывать в списке для связи с оценками.</p>
+    <div class="multi-list">${items}</div>
+    <button class="primary" data-action="grades-hide-multi-save">🙈 Скрыть выбранных</button>`;
+}
+
+function renderSessionSheet(draft) {
+  const subjects = (state.schedule?.subjects ?? [])
+    .map((subject) => choice(subject === draft.subject, 'draft-session-subject', `data-subject="${esc(subject)}"`, subject))
+    .join('');
+  const kinds = SESSION_KINDS
+    .map((kind) => choice(kind === draft.kind, 'draft-session-kind', `data-kind="${esc(kind)}"`, kind))
+    .join('');
+  return `
+    <h2>Событие сессии</h2>
+    <span class="field-label">Вид</span>
+    <div class="choices">${kinds}</div>
+    ${subjects ? `<span class="field-label">Быстрый выбор предмета</span><div class="choices choices-scroll">${subjects}</div>` : ''}
+    <label class="field-label" for="draft-text">Предмет</label>
+    <input class="input" id="draft-text" maxlength="200" value="${esc(draft.subject)}" placeholder="Например: Математический анализ">
+    <label class="field-label" for="draft-due">Дата</label>
+    <input class="input" id="draft-due" type="date" value="${esc(draft.date)}">
+    <label class="field-label" for="draft-time">Время (ЧЧ:ММ)</label>
+    <input class="input" id="draft-time" type="time" value="${esc(draft.time)}">
+    <label class="field-label" for="draft-room">Аудитория</label>
+    <input class="input" id="draft-room" maxlength="60" value="${esc(draft.room)}" placeholder="Например: 4202">
+    <button class="primary" data-action="session-save">🎓 Добавить</button>`;
+}
+
 function renderManualSheet(draft) {
   const days = studyDays();
   const dateChoices = days
     .map((day) => choice(day.date === draft.date, 'draft-date', `data-date="${day.date}"`, shortDate(day.date)))
     .join('');
   const day = days.find((item) => item.date === draft.date);
-  const pairChoices = (day?.entries ?? [])
-    .filter((entry) => entry.pair)
-    .map((entry) => choice(entry.pair === draft.pair, 'draft-pair', `data-pair="${entry.pair}"`, `${entry.pair} · ${entry.subject}`))
+  const byPair = new Map((day?.entries ?? []).filter((entry) => entry.pair).map((entry) => [entry.pair, entry]));
+  const pairChoices = PAIR_NUMBERS
+    .map((pair) => {
+      const entry = byPair.get(pair);
+      const label = entry ? `${pair} · ${entry.subject}` : `${pair} · (окно)`;
+      return choice(pair === draft.pair, 'draft-pair', `data-pair="${pair}"`, label);
+    })
     .join('');
-  const kinds = Object.entries(KINDS)
-    .map(([kind, label]) => choice(kind === draft.kind, 'draft-kind', `data-kind="${kind}"`, label))
+  const selectedEntry = draft.pair ? byPair.get(draft.pair) : null;
+  const availableKinds = selectedEntry
+    ? ['cancelled', 'remote', 'replaced', 'room']
+    : ['added'];
+  const effectiveKind = availableKinds.includes(draft.kind) ? draft.kind : availableKinds[0];
+  draft.kind = effectiveKind;
+  const kinds = availableKinds
+    .map((kind) => choice(kind === effectiveKind, 'draft-kind', `data-kind="${kind}"`, KINDS[kind]))
     .join('');
-  const textLabel = { cancelled: 'Причина (необязательно)', replaced: 'Какая пара вместо', remote: 'Пояснение (необязательно)' }[draft.kind];
-  const needsRoom = draft.kind === 'replaced' || draft.kind === 'room';
+  const textLabel = {
+    cancelled: 'Причина (необязательно)',
+    replaced: 'Какая пара вместо',
+    added: 'Какая пара (название, препод)',
+    remote: 'Пояснение (необязательно)',
+  }[effectiveKind];
+  const needsRoom = effectiveKind === 'replaced' || effectiveKind === 'room' || effectiveKind === 'added';
   return `
     <h2>Ручная замена</h2>
     <span class="field-label">День</span>
     <div class="choices choices-scroll">${dateChoices}</div>
     <span class="field-label">Пара</span>
-    <div class="choices choices-column">${pairChoices || '<p class="muted">В этот день пар нет</p>'}</div>
+    <div class="choices choices-column pair-grid">${pairChoices}</div>
     <span class="field-label">Что случилось</span>
     <div class="choices">${kinds}</div>
     ${textLabel ? `<label class="field-label" for="draft-text">${textLabel}</label><input class="input" id="draft-text" maxlength="200" value="${esc(draft.text)}">` : ''}
@@ -655,6 +794,9 @@ function renderSheet() {
     homework: renderHomeworkSheet,
     manual: renderManualSheet,
     label: renderLabelSheet,
+    approve: renderApproveSetupSheet,
+    hideMulti: renderHideMultiSheet,
+    session: renderSessionSheet,
     poll: renderPollSheet,
     short: renderShortSheet,
   };
@@ -679,6 +821,13 @@ function closeSheet() {
 
 function keepDraft() {
   const field = (id) => document.getElementById(id);
+  if (state.draft.type === 'session') {
+    if (field('draft-text')) state.draft.subject = field('draft-text').value;
+    if (field('draft-due')) state.draft.date = field('draft-due').value;
+    if (field('draft-time')) state.draft.time = field('draft-time').value;
+    if (field('draft-room')) state.draft.room = field('draft-room').value;
+    return;
+  }
   if (field('draft-text')) state.draft.text = field('draft-text').value;
   if (field('draft-due')) state.draft.due = field('draft-due').value;
   if (field('draft-room')) state.draft.room = field('draft-room').value;
@@ -732,7 +881,41 @@ const actions = {
   },
   'draft-subgroup'({ subgroup }) {
     const value = Number(subgroup) || null;
+    if (state.draft.type === 'approve') {
+      updateDraft({ subgroup: value });
+      return;
+    }
     updateDraft({ subgroup: value, due: lessonDates(state.draft.subject, value)[0] ?? state.draft.due });
+  },
+  'toggle-people-section'({ status }) {
+    state.peopleOpen[status] = !state.peopleOpen[status];
+    document.getElementById('people-list').innerHTML = renderPeopleList();
+    haptic();
+  },
+  'approve-setup'({ id }) {
+    const user = state.panel.users.find((other) => other.id === Number(id));
+    if (!user) return;
+    const student = user.grades_name || suggestStudent(user.label || user.name);
+    openSheet({
+      type: 'approve',
+      id: user.id,
+      name: user.name,
+      label: user.label ?? '',
+      student,
+      subgroup: user.subgroup || null,
+    });
+  },
+  'approve-setup-save'() {
+    keepDraft();
+    const action = {
+      a: 'user',
+      id: state.draft.id,
+      decision: 'approve',
+      label: state.draft.label.trim(),
+      subgroup: state.draft.subgroup || 0,
+    };
+    if (state.panel.grade_students.length) action.student = state.draft.student;
+    send(action);
   },
   'label-edit'({ id }) {
     const user = state.panel.users.find((other) => other.id === Number(id));
@@ -756,6 +939,49 @@ const actions = {
   },
   'grades-unhide'({ student }) {
     send({ a: 'grades_hide', student, hidden: false });
+  },
+  'grades-hide-multi'() {
+    openSheet({ type: 'hideMulti' });
+  },
+  'grades-hide-multi-save'() {
+    const students = [...document.querySelectorAll('.hide-multi-box:checked')].map((el) => el.value);
+    if (!students.length) {
+      toast('Отметь хотя бы одного');
+      return;
+    }
+    confirmThen(`Скрыть выбранные строки (${students.length})?`, () => send({ a: 'grades_hide', students, hidden: true }));
+  },
+  'session-start'() {
+    const start = document.getElementById('session-start-input')?.value || '';
+    if (!start) {
+      toast('Выбери дату начала сессии');
+      return;
+    }
+    send({ a: 'session_start', start });
+  },
+  'session-clear'() {
+    confirmThen('Сбросить дату начала сессии?', () => send({ a: 'session_start', start: '' }));
+  },
+  'session-new'() {
+    openSheet({ type: 'session', date: state.panel.session?.start || mskNow().date, time: '10:00', kind: 'Экзамен', subject: '', room: '' });
+  },
+  'draft-session-kind'({ kind }) {
+    updateDraft({ kind });
+  },
+  'draft-session-subject'({ subject }) {
+    updateDraft({ subject });
+  },
+  'session-save'() {
+    keepDraft();
+    const { date, time, kind, subject, room } = state.draft;
+    if (!date || !subject.trim()) {
+      toast('Укажи предмет и дату');
+      return;
+    }
+    send({ a: 'session_add', date, time: time.trim(), kind, subject: subject.trim(), room: room.trim() });
+  },
+  'session-delete'({ id }) {
+    confirmThen('Удалить событие из расписания сессии?', () => send({ a: 'session_del', id: Number(id) }));
   },
   'panel-rotate'() {
     confirmThen('Сменить ключ панели? Старая кнопка 🛠 Админка перестанет работать.', () => send({ a: 'panel_rotate' }));
@@ -814,10 +1040,14 @@ const actions = {
     openSheet({ type: 'manual', date: first?.date ?? '', pair: null, kind: 'cancelled', text: '', room: '' });
   },
   'draft-date'({ date }) {
-    updateDraft({ date, pair: null });
+    updateDraft({ date, pair: null, kind: 'cancelled' });
   },
   'draft-pair'({ pair }) {
-    updateDraft({ pair: Number(pair) });
+    const num = Number(pair);
+    const day = studyDays().find((item) => item.date === state.draft.date);
+    const occupied = (day?.entries ?? []).some((entry) => entry.pair === num);
+    const nextKind = occupied ? (state.draft.kind === 'added' ? 'cancelled' : state.draft.kind) : 'added';
+    updateDraft({ pair: num, kind: nextKind });
   },
   'draft-kind'({ kind }) {
     updateDraft({ kind, text: '', room: '' });
@@ -842,6 +1072,14 @@ const actions = {
     }
     confirmThen('Отправить объявление всем?', () => send({ a: 'broadcast', text }));
   },
+  'broadcast-preview'() {
+    const text = document.getElementById('broadcast-text').value.trim();
+    if (!text) {
+      toast('Напиши текст объявления');
+      return;
+    }
+    send({ a: 'broadcast', text, preview: true });
+  },
   'close-sheet'() {
     closeSheet();
   },
@@ -851,6 +1089,13 @@ function bindEvents() {
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-action]');
     if (target) actions[target.dataset.action]?.(target.dataset);
+  });
+  document.addEventListener('input', (event) => {
+    if (event.target.id === 'people-search') {
+      state.peopleQuery = event.target.value;
+      const list = document.getElementById('people-list');
+      if (list) list.innerHTML = renderPeopleList();
+    }
   });
 }
 
