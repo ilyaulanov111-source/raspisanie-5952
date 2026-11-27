@@ -503,3 +503,54 @@ select.input {
 @keyframes glow {
   50% { opacity: 0.55; }
 }
+
+.search-input {
+  margin: 14px 0 8px;
+}
+
+.accordion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 16px 2px 7px;
+  color: var(--hint);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.multi-list {
+  display: grid;
+  gap: 6px;
+  max-height: 46vh;
+  margin-top: 10px;
+  overflow-y: auto;
+}
+
+.multi-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.multi-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.session-start-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.session-start-row .input {
+  flex: 1;
+  min-width: 0;
+}
