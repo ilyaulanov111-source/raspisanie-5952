@@ -330,7 +330,7 @@ function renderDayList() {
   const relative = relativeDay(day.date);
   const title = relative ?? `${WEEKDAYS[dateParts(day.date).weekday]}`;
   const { day: number, month } = dateParts(day.date);
-  const small = `${number} ${MONTHS[month]}${day.week ? ` · ${WEEK_NAMES[day.week].split(' ')[0]}` : ''}${day.short ? ' · сокращённый' : ''}`;
+  const small = `${number} ${MONTHS[month]}${day.week ? ` · ${WEEK_NAMES[day.week].split(' ')[0]}` : ''}${day.short ? ' · сокращённый' : ''}${day.stage ? ` · ${day.stage}` : ''}`;
   const heading = `<h2 class="section-title"><span>${esc(title)}</span><small>${esc(small)}</small></h2>`;
 
   const sessionCards = sessionEventsFor(day.date).map((item) => `
@@ -839,13 +839,31 @@ function renderSessionSheet() {
     <div class="grade-lesson">
       <div><strong>${esc(shortDate(item.date))}${item.time ? ` · ${esc(item.time)}` : ''} · ${esc(item.kind || 'Сессия')}</strong><span>${esc(item.subject)}${item.room ? ` · ${esc(roomLabel(item.room))}` : ''}</span></div>
     </div>`).join('');
+  const attestations = (session.attestations ?? []).map((item) => {
+    const scheduled = events.find((ev) => ev.subject.toLowerCase().includes(item.subject.toLowerCase()));
+    const when = scheduled ? ` · ${shortDate(scheduled.date)}${scheduled.time ? ` в ${scheduled.time}` : ''}` : '';
+    const tone = item.kind === 'Экзамен' ? 'tag-warn' : 'tag-muted';
+    return `
+      <div class="grade-lesson">
+        <div><strong>${esc(item.subject)}</strong><span>${esc([item.teacher, when.slice(3)].filter(Boolean).join(' · ') || 'учебный план 5952')}</span></div>
+        <span class="tag ${tone}">${esc(item.kind)}</span>
+      </div>`;
+  }).join('');
+  const period = session.start
+    ? `${shortDate(session.start)}${session.end ? ` – ${shortDate(session.end)}` : ''}`
+    : '';
+  const vac = session.vacation
+    ? `<span class="field-label">${esc(session.vacation.title)}: ${esc(shortDate(session.vacation.start))} – ${esc(shortDate(session.vacation.end))}</span>`
+    : '';
   return `
     <div class="sheet-back" data-action="close-sheet"></div>
     <section class="sheet" role="dialog" aria-label="Сессия">
       <div class="sheet-grip"></div>
-      <h2>🎓 Сессия</h2>
-      ${session.start ? `<span class="field-label">Начало: ${esc(fullDate(session.start))}</span>` : ''}
-      ${rows ? `<section class="grade-card">${rows}</section>` : '<p class="muted">Предметы и время экзаменов появятся здесь, когда их добавит создатель.</p>'}
+      <h2>🎓 ${esc(session.title || 'Сессия')}</h2>
+      ${period ? `<span class="field-label">Сроки: ${esc(period)}</span>` : ''}
+      ${vac}
+      ${rows ? `<span class="field-label">Точные даты и время</span><section class="grade-card">${rows}</section>` : ''}
+      ${attestations ? `<span class="field-label">Что сдаём (${session.term} семестр)</span><section class="grade-card">${attestations}</section>` : ''}
     </section>`;
 }
 
