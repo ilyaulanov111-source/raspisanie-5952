@@ -724,7 +724,11 @@ function renderHideMultiSheet() {
 }
 
 function renderSessionSheet(draft) {
-  const subjects = (state.schedule?.subjects ?? [])
+  const list = [...new Set([
+    ...(state.panel.session?.attestations ?? []).map((item) => item.subject),
+    ...(state.schedule?.subjects ?? []),
+  ])];
+  const subjects = list
     .map((subject) => choice(subject === draft.subject, 'draft-session-subject', `data-subject="${esc(subject)}"`, subject))
     .join('');
   const kinds = SESSION_KINDS
